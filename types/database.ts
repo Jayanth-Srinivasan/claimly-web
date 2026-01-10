@@ -267,7 +267,7 @@ export interface Database {
       questions: {
         Row: {
           id: string
-          questionnaire_id: string
+          coverage_type_id: string
           question_text: string
           field_type: Database['public']['Enums']['field_type']
           is_required: boolean
@@ -280,7 +280,7 @@ export interface Database {
         }
         Insert: {
           id?: string
-          questionnaire_id: string
+          coverage_type_id: string
           question_text: string
           field_type: Database['public']['Enums']['field_type']
           is_required?: boolean
@@ -293,7 +293,7 @@ export interface Database {
         }
         Update: {
           id?: string
-          questionnaire_id?: string
+          coverage_type_id?: string
           question_text?: string
           field_type?: Database['public']['Enums']['field_type']
           is_required?: boolean
@@ -308,7 +308,7 @@ export interface Database {
       rules: {
         Row: {
           id: string
-          questionnaire_id: string | null
+          coverage_type_id: string
           question_id: string | null
           rule_type: Database['public']['Enums']['rule_type']
           name: string
@@ -323,7 +323,7 @@ export interface Database {
         }
         Insert: {
           id?: string
-          questionnaire_id?: string | null
+          coverage_type_id: string
           question_id?: string | null
           rule_type: Database['public']['Enums']['rule_type']
           name: string
@@ -338,7 +338,7 @@ export interface Database {
         }
         Update: {
           id?: string
-          questionnaire_id?: string | null
+          coverage_type_id?: string
           question_id?: string | null
           rule_type?: Database['public']['Enums']['rule_type']
           name?: string

@@ -67,11 +67,12 @@ export async function getPoliciesByCoverageType(coverageTypeId: string): Promise
     .select('policy_id')
     .eq('coverage_type_id', coverageTypeId)
 
-  if (error) {
-    throw new Error(`Failed to fetch policies by coverage type: ${error.message}`)
+  if (error || !data) {
+    throw new Error(`Failed to fetch policies by coverage type: ${error?.message || 'No data'}`)
   }
 
-  return data.map((row) => row.policy_id)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return data.map((row: any) => row.policy_id)
 }
 
 /**
@@ -108,7 +109,7 @@ export async function createPolicyCoverageType(
 ): Promise<PolicyCoverageType> {
   const supabase = await createClient()
 
-  const insertData: typeof supabase.from<'policy_coverage_types'>['insert']['arguments'] = {
+  const insertData = {
     policy_id: policyCoverageType.policy_id,
     coverage_type_id: policyCoverageType.coverage_type_id,
     coverage_limit: policyCoverageType.coverage_limit ?? null,
@@ -130,7 +131,7 @@ export async function updatePolicyCoverageType(
 ): Promise<PolicyCoverageType> {
   const supabase = await createClient()
 
-  const updateData: typeof supabase.from<'policy_coverage_types'>['update']['arguments'] = {}
+  const updateData: Record<string, unknown> = {}
 
   if (updates.coverage_limit !== undefined) updateData.coverage_limit = updates.coverage_limit
   if (updates.deductible !== undefined) updateData.deductible = updates.deductible
@@ -207,7 +208,8 @@ export async function bulkSetPolicyCoverageTypes(
 
     const { error: insertError } = await supabase
       .from('policy_coverage_types')
-      .insert(insertData)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .insert(insertData as any)
 
     if (insertError) {
       throw new Error(`Failed to insert new coverage types: ${insertError.message}`)
@@ -235,7 +237,8 @@ export async function addCoverageTypesToPolicy(
 
   const { data, error } = await supabase
     .from('policy_coverage_types')
-    .insert(insertData)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .insert(insertData as any)
     .select()
 
   if (error) {
@@ -339,7 +342,8 @@ export async function getAvailableCoverageTypesForPolicy(
 
   // Filter out already added coverage types
   const availableCoverageTypes = (allCoverageTypes || []).filter(
-    (ct) => !existingIds.has(ct.id)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ct: any) => !existingIds.has(ct.id)
   )
 
   return availableCoverageTypes as unknown as CoverageType[]

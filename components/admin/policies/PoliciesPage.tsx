@@ -5,19 +5,30 @@ import { Plus, FileText, Search } from 'lucide-react'
 import { TopBar } from '../TopBar'
 import { PolicyCard } from './PolicyCard'
 import { PolicyDialog } from './PolicyDialog'
+import type { SelectedCoverage } from './CoverageTypeSelector'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { addPolicy, editPolicy, removePolicy, togglePolicy } from '@/app/admin/policies/actions'
+import {
+  addPolicy,
+  editPolicy,
+  removePolicy,
+  togglePolicy,
+  addPolicyCoverages,
+  updatePolicyCoverages,
+} from '@/app/admin/policies/actions'
 import type { Profile } from '@/types/auth'
-import type { Policy, PolicyInsert } from '@/types/policies'
+import type { Policy, PolicyInsert, CoverageType } from '@/types/policies'
 
 interface PoliciesPageProps {
   profile: Profile
   initialPolicies: Policy[]
+  coverageTypes: CoverageType[]
+  policyCoveragesMap: Map<string, SelectedCoverage[]>
 }
 
-export function PoliciesPage({ profile, initialPolicies }: PoliciesPageProps) {
+export function PoliciesPage({ profile, initialPolicies, coverageTypes, policyCoveragesMap }: PoliciesPageProps) {
   const [policies, setPolicies] = useState<Policy[]>(initialPolicies)
+  const [policyCoverages, setPolicyCoverages] = useState<Map<string, SelectedCoverage[]>>(policyCoveragesMap)
   const [searchQuery, setSearchQuery] = useState('')
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null)
@@ -31,9 +42,13 @@ export function PoliciesPage({ profile, initialPolicies }: PoliciesPageProps) {
       ) ?? false)
   )
 
-  const handleCreatePolicy = async (data: PolicyInsert) => {
+  const handleCreatePolicy = async (data: PolicyInsert, coverages: SelectedCoverage[]) => {
     try {
       const newPolicy = await addPolicy(data)
+      if (coverages.length > 0) {
+        await addPolicyCoverages(newPolicy.id, coverages)
+        setPolicyCoverages(new Map(policyCoverages.set(newPolicy.id, coverages)))
+      }
       setPolicies([newPolicy, ...policies])
       setIsCreateDialogOpen(false)
     } catch (error) {
@@ -42,9 +57,13 @@ export function PoliciesPage({ profile, initialPolicies }: PoliciesPageProps) {
     }
   }
 
-  const handleUpdatePolicy = async (id: string, data: Partial<Policy>) => {
+  const handleUpdatePolicy = async (id: string, data: Partial<Policy>, coverages: SelectedCoverage[]) => {
     try {
       const updated = await editPolicy(id, data)
+      if (coverages.length > 0) {
+        await updatePolicyCoverages(id, coverages)
+        setPolicyCoverages(new Map(policyCoverages.set(id, coverages)))
+      }
       setPolicies(
         policies.map((policy) =>
           policy.id === id ? updated : policy
@@ -183,6 +202,8 @@ export function PoliciesPage({ profile, initialPolicies }: PoliciesPageProps) {
                     <PolicyCard
                       key={policy.id}
                       policy={policy}
+                      coverageTypes={coverageTypes}
+                      policyCoverages={policyCoverages.get(policy.id) || []}
                       onEdit={() => setEditingPolicy(policy)}
                       onToggleActive={() => handleToggleActive(policy.id)}
                       onDelete={() => handleDeletePolicy(policy.id)}
@@ -198,6 +219,7 @@ export function PoliciesPage({ profile, initialPolicies }: PoliciesPageProps) {
       <PolicyDialog
         open={isCreateDialogOpen}
         onOpenChange={setIsCreateDialogOpen}
+        coverageTypes={coverageTypes}
         onSubmit={handleCreatePolicy}
       />
 
@@ -206,7 +228,9 @@ export function PoliciesPage({ profile, initialPolicies }: PoliciesPageProps) {
           open={true}
           onOpenChange={(open) => !open && setEditingPolicy(null)}
           policy={editingPolicy}
-          onSubmit={(data) => handleUpdatePolicy(editingPolicy.id, data)}
+          coverageTypes={coverageTypes}
+          policyCoverages={policyCoverages.get(editingPolicy.id) || []}
+          onSubmit={(data, coverages) => handleUpdatePolicy(editingPolicy.id, data, coverages)}
         />
       )}
     </div>

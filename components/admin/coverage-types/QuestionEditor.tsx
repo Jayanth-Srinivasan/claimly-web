@@ -27,7 +27,7 @@ interface QuestionEditorProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   question?: Question
-  onSubmit: (data: Omit<QuestionInsert, 'questionnaire_id' | 'order_index'>) => void
+  onSubmit: (data: Omit<QuestionInsert, 'coverage_type_id' | 'order_index'>) => void
 }
 
 const fieldTypes: { value: FieldType; label: string; description: string }[] = [
@@ -116,7 +116,7 @@ export function QuestionEditor({
           <DialogDescription>
             {question
               ? 'Update the question details below.'
-              : 'Add a new question to the questionnaire.'}
+              : 'Add a new question to the coverage type.'}
           </DialogDescription>
         </DialogHeader>
 

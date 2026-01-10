@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Shield, Clock, CheckCircle, XCircle, FileText, Settings } from 'lucide-react'
 import { TopBar } from './TopBar'
@@ -293,10 +292,10 @@ export function AdminDashboard({ profile }: AdminDashboardProps) {
               onClick={() => router.push('/admin/policies')}
             />
             <ActionCard
-              title="Rules & Questionnaires"
-              description="Configure claim submission forms and validation rules"
+              title="Coverage Types & Rules"
+              description="Manage coverage types, questions, and validation rules"
               icon={Settings}
-              onClick={() => router.push('/admin/rules')}
+              onClick={() => router.push('/admin/coverage-types')}
             />
           </div>
 

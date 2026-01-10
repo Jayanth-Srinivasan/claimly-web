@@ -1,55 +1,55 @@
 import { createClient } from './server'
 import { insertOne, updateOne } from './helpers'
 import type { Rule, RuleInsert, RuleUpdate } from '@/types/policies'
+import type { Json } from '@/types/database'
 
 /**
- * Get all rules for a questionnaire
+ * Get all rules
  */
-export async function getRulesByQuestionnaire(questionnaireId: string): Promise<Rule[]> {
+export async function getRules(): Promise<Rule[]> {
   const supabase = await createClient()
 
   const { data, error } = await supabase
     .from('rules')
     .select('*')
-    .eq('questionnaire_id', questionnaireId)
-    .order('priority', { ascending: false }) // Higher priority first
-
-  if (error) {
-    throw new Error(`Failed to fetch rules for questionnaire: ${error.message}`)
-  }
-
-  return (data as unknown as Rule[]) || []
-}
-
-/**
- * Get all rules for a specific question
- */
-export async function getRulesByQuestion(questionId: string): Promise<Rule[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
-    .from('rules')
-    .select('*')
-    .eq('question_id', questionId)
     .order('priority', { ascending: false })
 
   if (error) {
-    throw new Error(`Failed to fetch rules for question: ${error.message}`)
+    throw new Error(`Failed to fetch rules: ${error.message}`)
   }
 
   return (data as unknown as Rule[]) || []
 }
 
 /**
- * Get all active rules for a questionnaire
+ * Get all rules for a coverage type
  */
-export async function getActiveRulesByQuestionnaire(questionnaireId: string): Promise<Rule[]> {
+export async function getRulesByCoverageType(coverageTypeId: string): Promise<Rule[]> {
   const supabase = await createClient()
 
   const { data, error } = await supabase
     .from('rules')
     .select('*')
-    .eq('questionnaire_id', questionnaireId)
+    .eq('coverage_type_id', coverageTypeId)
+    .order('priority', { ascending: false }) // Higher priority first
+
+  if (error) {
+    throw new Error(`Failed to fetch rules for coverage type: ${error.message}`)
+  }
+
+  return (data as unknown as Rule[]) || []
+}
+
+/**
+ * Get all active rules for a coverage type
+ */
+export async function getActiveRulesByCoverageType(coverageTypeId: string): Promise<Rule[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('rules')
+    .select('*')
+    .eq('coverage_type_id', coverageTypeId)
     .eq('is_active', true)
     .order('priority', { ascending: false })
 
@@ -103,14 +103,13 @@ export async function getRule(id: string): Promise<Rule | null> {
 export async function createRule(rule: RuleInsert): Promise<Rule> {
   const supabase = await createClient()
 
-  const insertData: typeof supabase.from<'rules'>['insert']['arguments'] = {
-    questionnaire_id: rule.questionnaire_id ?? null,
-    question_id: rule.question_id ?? null,
+  const insertData = {
+    coverage_type_id: rule.coverage_type_id,
     rule_type: rule.rule_type,
     name: rule.name,
     description: rule.description ?? null,
-    conditions: rule.conditions ?? [],
-    actions: rule.actions ?? [],
+    conditions: (rule.conditions ?? []) as Json,
+    actions: (rule.actions ?? []) as Json,
     priority: rule.priority ?? 0,
     is_active: rule.is_active ?? true,
     error_message: rule.error_message ?? null,
@@ -126,15 +125,14 @@ export async function createRule(rule: RuleInsert): Promise<Rule> {
 export async function updateRule(id: string, updates: RuleUpdate): Promise<Rule> {
   const supabase = await createClient()
 
-  const updateData: typeof supabase.from<'rules'>['update']['arguments'] = {}
+  const updateData: Record<string, unknown> = {}
 
-  if (updates.questionnaire_id !== undefined) updateData.questionnaire_id = updates.questionnaire_id
-  if (updates.question_id !== undefined) updateData.question_id = updates.question_id
+  if (updates.coverage_type_id !== undefined) updateData.coverage_type_id = updates.coverage_type_id
   if (updates.rule_type !== undefined) updateData.rule_type = updates.rule_type
   if (updates.name !== undefined) updateData.name = updates.name
   if (updates.description !== undefined) updateData.description = updates.description
-  if (updates.conditions !== undefined) updateData.conditions = updates.conditions
-  if (updates.actions !== undefined) updateData.actions = updates.actions
+  if (updates.conditions !== undefined) updateData.conditions = updates.conditions as Json
+  if (updates.actions !== undefined) updateData.actions = updates.actions as Json
   if (updates.priority !== undefined) updateData.priority = updates.priority
   if (updates.is_active !== undefined) updateData.is_active = updates.is_active
   if (updates.error_message !== undefined) updateData.error_message = updates.error_message
@@ -173,7 +171,8 @@ export async function reorderRules(
 
   await Promise.all(
     rules.map(({ id, priority }) =>
-      supabase.from('rules').update({ priority }).eq('id', id)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from('rules').update as any)({ priority }).eq('id', id)
     )
   )
 }
@@ -189,8 +188,7 @@ export async function duplicateRule(id: string): Promise<Rule> {
   }
 
   const newRule: RuleInsert = {
-    questionnaire_id: originalRule.questionnaire_id,
-    question_id: originalRule.question_id,
+    coverage_type_id: originalRule.coverage_type_id,
     rule_type: originalRule.rule_type,
     name: `${originalRule.name} (Copy)`,
     description: originalRule.description,
@@ -205,29 +203,9 @@ export async function duplicateRule(id: string): Promise<Rule> {
 }
 
 /**
- * Get questionnaire-level rules (not tied to a specific question)
+ * Get rule statistics for a coverage type
  */
-export async function getQuestionnaireLevelRules(questionnaireId: string): Promise<Rule[]> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
-    .from('rules')
-    .select('*')
-    .eq('questionnaire_id', questionnaireId)
-    .is('question_id', null)
-    .order('priority', { ascending: false })
-
-  if (error) {
-    throw new Error(`Failed to fetch questionnaire-level rules: ${error.message}`)
-  }
-
-  return (data as unknown as Rule[]) || []
-}
-
-/**
- * Get rule statistics for a questionnaire
- */
-export async function getRuleStats(questionnaireId: string): Promise<{
+export async function getRuleStats(coverageTypeId: string): Promise<{
   total: number
   active: number
   inactive: number
@@ -235,7 +213,7 @@ export async function getRuleStats(questionnaireId: string): Promise<{
   highestPriority: number
   lowestPriority: number
 }> {
-  const rules = await getRulesByQuestionnaire(questionnaireId)
+  const rules = await getRulesByCoverageType(coverageTypeId)
 
   const byType = rules.reduce(
     (acc, rule) => {
@@ -286,7 +264,8 @@ export async function bulkUpdateRulePriorities(
 
   const results = await Promise.allSettled(
     updates.map(({ id, priority }) =>
-      supabase.from('rules').update({ priority }).eq('id', id)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from('rules').update as any)({ priority }).eq('id', id)
     )
   )
 

@@ -38,8 +38,6 @@ export default function Home() {
               </Button>
             </Link>
           </div>
-
-          {/* Floating Preview Cards */}
           <div className="relative mx-auto max-w-5xl">
             <div className="absolute -top-4 left-0 w-72 opacity-60 animate-float">
               <Card className="p-4 bg-white dark:bg-black border-black/10 dark:border-white/10">

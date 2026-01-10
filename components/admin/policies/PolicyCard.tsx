@@ -3,7 +3,8 @@
 import { Edit, Trash2, ToggleLeft, ToggleRight, Shield, Calendar, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { Policy } from '@/types/policies'
+import type { Policy, CoverageType } from '@/types/policies'
+import type { SelectedCoverage } from './CoverageTypeSelector'
 
 const formatCurrency = (amount: number | null, currency: string | null) => {
   if (amount === null) return '-'
@@ -13,17 +14,35 @@ const formatCurrency = (amount: number | null, currency: string | null) => {
 
 interface PolicyCardProps {
   policy: Policy
+  coverageTypes?: CoverageType[]
+  policyCoverages?: SelectedCoverage[]
   onEdit: () => void
   onToggleActive: () => void
   onDelete: () => void
 }
 
+const categoryColors: Record<string, string> = {
+  medical: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  travel: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  flight: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  business: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  property: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  liability: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  other: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
+}
+
 export function PolicyCard({
   policy,
+  coverageTypes = [],
+  policyCoverages = [],
   onEdit,
   onToggleActive,
   onDelete,
 }: PolicyCardProps) {
+  const getCoverageType = (id: string): CoverageType | undefined => {
+    return coverageTypes.find((ct) => ct.id === id)
+  }
+
   return (
     <div className="border border-black/10 dark:border-white/10 rounded-lg p-4 hover:border-black/20 dark:hover:border-white/20 transition-colors">
       <div className="flex items-start justify-between gap-4">
@@ -33,7 +52,7 @@ export function PolicyCard({
               <Shield className="h-5 w-5 text-black dark:text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-semibold text-black dark:text-white truncate">
                   {policy.name}
                 </h3>
@@ -47,6 +66,11 @@ export function PolicyCard({
                 >
                   {policy.is_active ? 'Active' : 'Inactive'}
                 </Badge>
+                {policyCoverages.length > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    {policyCoverages.length} {policyCoverages.length === 1 ? 'Coverage' : 'Coverages'}
+                  </Badge>
+                )}
               </div>
               {policy.description && (
                 <p className="text-sm text-black/60 dark:text-white/60 mt-1 line-clamp-2">
@@ -56,19 +80,48 @@ export function PolicyCard({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 mt-3">
-            {policy.coverage_items.map((item, index) => (
-              <span
-                key={index}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-green-500/10 text-green-700 dark:text-green-400"
-              >
-                <span>{item.name}</span>
-                <span className="font-semibold">
-                  {formatCurrency(item.limit, policy.currency)}
+          {/* New Coverage Types */}
+          {policyCoverages.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {policyCoverages.map((coverage) => {
+                const coverageType = getCoverageType(coverage.coverage_type_id)
+                if (!coverageType) return null
+
+                return (
+                  <div
+                    key={coverage.coverage_type_id}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${
+                      categoryColors[coverageType.category || 'other']
+                    }`}
+                  >
+                    <span>{coverageType.name}</span>
+                    {coverage.coverage_limit > 0 && (
+                      <span className="font-semibold">
+                        {formatCurrency(coverage.coverage_limit, policy.currency)}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Legacy Coverage Items */}
+          {policy.coverage_items.length > 0 && policyCoverages.length === 0 && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {policy.coverage_items.map((item, index) => (
+                <span
+                  key={index}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-green-500/10 text-green-700 dark:text-green-400"
+                >
+                  <span>{item.name}</span>
+                  <span className="font-semibold">
+                    {formatCurrency(item.limit, policy.currency)}
+                  </span>
                 </span>
-              </span>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           {(policy.deductible !== null || policy.premium) && (
             <div className="grid grid-cols-2 gap-4 mt-4 p-3 bg-black/5 dark:bg-white/5 rounded-lg">

@@ -187,7 +187,7 @@ interface ClaimDetailPageProps {
   profile: Profile
 }
 
-export function ClaimDetailPage({ claimId, profile }: ClaimDetailPageProps) {
+export function ClaimDetailPage({ claimId, profile: _profile }: ClaimDetailPageProps) {
   const router = useRouter()
   const [claim, setClaim] = useState<Claim | undefined>(() => {
     console.log('Looking for claim with ID:', claimId)
@@ -213,7 +213,7 @@ export function ClaimDetailPage({ claimId, profile }: ClaimDetailPageProps) {
   const status = statusConfig[claim.status]
   const StatusIcon = status.icon
 
-  const handleSendMessage = (content: string, files: File[]) => {
+  const handleSendMessage = (content: string, _files: File[]) => {
     if (!claim) return
 
     const newMessage: ClaimMessage = {

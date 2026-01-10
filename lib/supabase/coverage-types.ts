@@ -1,6 +1,8 @@
 import { createClient } from './server'
 import { insertOne, updateOne } from './helpers'
-import type { CoverageType, CoverageTypeInsert, CoverageTypeUpdate } from '@/types/policies'
+import type { CoverageType, CoverageTypeInsert, CoverageTypeUpdate, CoverageTypeWithQuestions } from '@/types/policies'
+import type { Json } from '@/types/database'
+import { getQuestionsByCoverageType } from './questions'
 
 /**
  * Get all coverage types
@@ -81,6 +83,19 @@ export async function getCoverageType(id: string): Promise<CoverageType | null> 
 }
 
 /**
+ * Get a coverage type with its questions
+ */
+export async function getCoverageTypeWithQuestions(
+  id: string
+): Promise<CoverageTypeWithQuestions | null> {
+  const coverageType = await getCoverageType(id)
+  if (!coverageType) return null
+
+  const questions = await getQuestionsByCoverageType(id)
+  return { ...coverageType, questions }
+}
+
+/**
  * Get a coverage type by slug
  */
 export async function getCoverageTypeBySlug(slug: string): Promise<CoverageType | null> {
@@ -129,7 +144,7 @@ export async function createCoverageType(
 ): Promise<CoverageType> {
   const supabase = await createClient()
 
-  const insertData: typeof supabase.from<'coverage_types'>['insert']['arguments'] = {
+  const insertData = {
     name: coverageType.name,
     slug: coverageType.slug,
     description: coverageType.description ?? null,
@@ -137,7 +152,7 @@ export async function createCoverageType(
     icon: coverageType.icon ?? null,
     is_active: coverageType.is_active ?? true,
     display_order: coverageType.display_order ?? 0,
-    metadata: coverageType.metadata ?? {},
+    metadata: (coverageType.metadata ?? {}) as Json,
   }
 
   const data = await insertOne(supabase, 'coverage_types', insertData)
@@ -153,7 +168,7 @@ export async function updateCoverageType(
 ): Promise<CoverageType> {
   const supabase = await createClient()
 
-  const updateData: typeof supabase.from<'coverage_types'>['update']['arguments'] = {}
+  const updateData: Record<string, unknown> = {}
 
   if (updates.name !== undefined) updateData.name = updates.name
   if (updates.slug !== undefined) updateData.slug = updates.slug
@@ -162,7 +177,7 @@ export async function updateCoverageType(
   if (updates.icon !== undefined) updateData.icon = updates.icon
   if (updates.is_active !== undefined) updateData.is_active = updates.is_active
   if (updates.display_order !== undefined) updateData.display_order = updates.display_order
-  if (updates.metadata !== undefined) updateData.metadata = updates.metadata
+  if (updates.metadata !== undefined) updateData.metadata = updates.metadata as Json
 
   const data = await updateOne(supabase, 'coverage_types', id, updateData)
   return data as unknown as CoverageType
@@ -206,7 +221,8 @@ export async function reorderCoverageTypes(
 
   await Promise.all(
     updates.map(({ id, data }) =>
-      supabase.from('coverage_types').update(data).eq('id', id)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from('coverage_types').update as any)(data).eq('id', id)
     )
   )
 }
@@ -222,12 +238,12 @@ export async function getCoverageTypeCategories(): Promise<string[]> {
     .select('category')
     .not('category', 'is', null)
 
-  if (error) {
-    throw new Error(`Failed to fetch coverage type categories: ${error.message}`)
+  if (error || !data) {
+    throw new Error(`Failed to fetch coverage type categories: ${error?.message || 'No data'}`)
   }
 
   // Extract unique categories
-  const categories = [...new Set(data.map((row) => row.category).filter(Boolean))]
+  const categories = [...new Set((data as Array<{ category: string | null }>).map((row) => row.category).filter(Boolean))]
   return categories as string[]
 }
 

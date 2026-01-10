@@ -31,6 +31,7 @@ export type ActionType =
   | 'block_submission'
   | 'set_value'
   | 'show_warning'
+  | 'calculate_value'
 
 /**
  * Rule Condition - defines when a rule should be triggered
@@ -56,6 +57,8 @@ export interface RuleAction {
   allowedFormats?: string[] // For require_document (e.g., ['pdf', 'jpg', 'png'])
   maxFileSize?: number // For require_document (in bytes)
   value?: unknown // For set_value action
+  targetField?: string // For calculate_value action - the field to set
+  formula?: string // For calculate_value action - the calculation formula
 }
 
 /**

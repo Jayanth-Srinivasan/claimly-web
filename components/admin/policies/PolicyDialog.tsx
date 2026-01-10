@@ -1,6 +1,6 @@
 'use client'
 
-import { useState} from 'react'
+import { useState, useEffect } from 'react'
 import { X, Plus } from 'lucide-react'
 import {
   Dialog,
@@ -14,40 +14,81 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import type { Policy, PolicyInsert, CoverageItem } from '@/types/policies'
+import { CoverageTypeSelector, type SelectedCoverage } from './CoverageTypeSelector'
+import type { Policy, PolicyInsert, CoverageItem, CoverageType } from '@/types/policies'
 
 interface PolicyDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   policy?: Policy
-  onSubmit: (data: PolicyInsert) => void
+  coverageTypes: CoverageType[]
+  policyCoverages?: SelectedCoverage[]
+  onSubmit: (data: PolicyInsert, coverages: SelectedCoverage[]) => void
 }
 
 export function PolicyDialog({
   open,
   onOpenChange,
   policy,
+  coverageTypes,
+  policyCoverages = [],
   onSubmit,
 }: PolicyDialogProps) {
-  // Initialize state from policy prop directly (state initializers only run once per mount)
-  // Dialog will remount when policy.id changes (via key prop)
-  const [name, setName] = useState(policy?.name || '')
-  const [description, setDescription] = useState(policy?.description || '')
-  const [coverageItems, setCoverageItems] = useState<CoverageItem[]>(policy?.coverage_items || [])
-  const [newCoverageItemName, setNewCoverageItemName] = useState('')
-  const [newCoverageItemLimit, setNewCoverageItemLimit] = useState('')
-  const [isActive, setIsActive] = useState(policy?.is_active ?? true)
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [selectedCoverages, setSelectedCoverages] = useState<SelectedCoverage[]>([])
+  const [coverageItems, setCoverageItems] = useState<CoverageItem[]>([])
+  const [isActive, setIsActive] = useState(true)
 
-  const [deductible, setDeductible] = useState(policy?.deductible?.toString() || '')
-  const [premium, setPremium] = useState(policy?.premium?.toString() || '')
-  const [currency, setCurrency] = useState(policy?.currency || 'USD')
-  const [premiumFrequency, setPremiumFrequency] = useState<'monthly' | 'quarterly' | 'annually'>(policy?.premium_frequency || 'annually')
-  const [policyTermMonths, setPolicyTermMonths] = useState(policy?.policy_term_months?.toString() || '')
+  const [deductible, setDeductible] = useState('')
+  const [premium, setPremium] = useState('')
+  const [currency, setCurrency] = useState('USD')
+  const [premiumFrequency, setPremiumFrequency] = useState<'monthly' | 'quarterly' | 'annually'>('annually')
+  const [policyTermMonths, setPolicyTermMonths] = useState('')
 
-  const [exclusions, setExclusions] = useState<string[]>(policy?.exclusions || [])
+  const [exclusions, setExclusions] = useState<string[]>([])
   const [newExclusion, setNewExclusion] = useState('')
 
   const [errors, setErrors] = useState<Record<string, string>>({})
+
+  // Initialize form when dialog opens or policy changes
+  useEffect(() => {
+    if (open) {
+      if (policy) {
+        /* eslint-disable react-hooks/set-state-in-effect */
+        setName(policy.name)
+        setDescription(policy.description || '')
+        setSelectedCoverages(policyCoverages)
+        setCoverageItems(policy.coverage_items || [])
+        setIsActive(policy.is_active ?? true)
+        setDeductible(policy.deductible?.toString() || '')
+        setPremium(policy.premium?.toString() || '')
+        setCurrency(policy.currency || 'USD')
+        setPremiumFrequency(policy.premium_frequency || 'annually')
+        setPolicyTermMonths(policy.policy_term_months?.toString() || '')
+        setExclusions(policy.exclusions || [])
+        /* eslint-enable react-hooks/set-state-in-effect */
+      } else {
+        /* eslint-disable react-hooks/set-state-in-effect */
+        // Reset for new policy
+        setName('')
+        setDescription('')
+        setSelectedCoverages([])
+        setCoverageItems([])
+        setIsActive(true)
+        setDeductible('')
+        setPremium('')
+        setCurrency('USD')
+        setPremiumFrequency('annually')
+        setPolicyTermMonths('')
+        setExclusions([])
+        /* eslint-enable react-hooks/set-state-in-effect */
+      }
+      /* eslint-disable-next-line react-hooks/set-state-in-effect */
+      setErrors({})
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, policy?.id])
 
   const validate = () => {
     const newErrors: Record<string, string> = {}
@@ -56,26 +97,12 @@ export function PolicyDialog({
       newErrors.name = 'Policy name is required'
     }
 
-    if (coverageItems.length === 0) {
-      newErrors.coverageItems = 'At least one coverage item is required'
+    if (selectedCoverages.length === 0 && coverageItems.length === 0) {
+      newErrors.coverages = 'At least one coverage type is required'
     }
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
-  }
-
-  const handleAddCoverageItem = () => {
-    const trimmedName = newCoverageItemName.trim()
-    const limit = parseFloat(newCoverageItemLimit)
-
-    if (trimmedName && !isNaN(limit) && limit > 0) {
-      const exists = coverageItems.some(item => item.name === trimmedName)
-      if (!exists) {
-        setCoverageItems([...coverageItems, { name: trimmedName, limit }])
-        setNewCoverageItemName('')
-        setNewCoverageItemLimit('')
-      }
-    }
   }
 
   const handleRemoveCoverageItem = (index: number) => {
@@ -101,18 +128,21 @@ export function PolicyDialog({
       return
     }
 
-    onSubmit({
-      name: name.trim(),
-      description: description.trim() || null,
-      coverage_items: coverageItems,
-      deductible: deductible ? parseFloat(deductible) : null,
-      premium: premium ? parseFloat(premium) : null,
-      currency: currency || null,
-      premium_frequency: premiumFrequency,
-      policy_term_months: policyTermMonths ? parseInt(policyTermMonths) : null,
-      exclusions: exclusions,
-      is_active: isActive,
-    })
+    onSubmit(
+      {
+        name: name.trim(),
+        description: description.trim() || null,
+        coverage_items: coverageItems, // Keep for backward compatibility
+        deductible: deductible ? parseFloat(deductible) : null,
+        premium: premium ? parseFloat(premium) : null,
+        currency: currency || null,
+        premium_frequency: premiumFrequency,
+        policy_term_months: policyTermMonths ? parseInt(policyTermMonths) : null,
+        exclusions: exclusions,
+        is_active: isActive,
+      },
+      selectedCoverages
+    )
   }
 
   return (
@@ -249,51 +279,28 @@ export function PolicyDialog({
               Coverage Details
             </h3>
 
-            <div className="space-y-2">
-              <Label>
-                Coverage Items <span className="text-red-500">*</span>
-              </Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Coverage name (e.g., Medical)"
-                  value={newCoverageItemName}
-                  onChange={(e) => setNewCoverageItemName(e.target.value)}
-                  className="flex-1"
-                />
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="Limit"
-                  value={newCoverageItemLimit}
-                  onChange={(e) => setNewCoverageItemLimit(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      handleAddCoverageItem()
-                    }
-                  }}
-                  className="w-32"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAddCoverageItem}
-                  disabled={!newCoverageItemName.trim() || !newCoverageItemLimit}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
+            <CoverageTypeSelector
+              coverageTypes={coverageTypes}
+              selectedCoverages={selectedCoverages}
+              onChange={setSelectedCoverages}
+              error={errors.coverages}
+            />
 
-              {coverageItems.length > 0 && (
-                <div className="space-y-2 mt-3 p-3 border border-black/10 dark:border-white/10 rounded-lg">
+            {/* Legacy Coverage Items (for backward compatibility) */}
+            {coverageItems.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm text-black/60 dark:text-white/60">
+                  Legacy Coverage Items
+                </Label>
+                <div className="space-y-2 p-3 border border-black/10 dark:border-white/10 rounded-lg bg-black/5 dark:bg-white/5">
                   {coverageItems.map((item, index) => (
                     <div
                       key={index}
-                      className="flex items-center justify-between px-3 py-2 rounded-md bg-green-500/10 text-green-700 dark:text-green-400"
+                      className="flex items-center justify-between px-3 py-2 rounded-md bg-white dark:bg-black border border-black/10 dark:border-white/10"
                     >
                       <div className="flex items-center gap-3">
                         <span className="font-medium">{item.name}</span>
-                        <span className="text-sm">
+                        <span className="text-sm text-black/60 dark:text-white/60">
                           {currency || 'USD'} {item.limit.toLocaleString()}
                         </span>
                       </div>
@@ -307,12 +314,11 @@ export function PolicyDialog({
                     </div>
                   ))}
                 </div>
-              )}
-
-              {errors.coverageItems && (
-                <p className="text-sm text-red-500">{errors.coverageItems}</p>
-              )}
-            </div>
+                <p className="text-xs text-black/60 dark:text-white/60">
+                  These are legacy coverage items. Add new coverage types above.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-4">

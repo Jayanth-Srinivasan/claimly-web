@@ -35,7 +35,7 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
   // Mock chat history (empty initially)
   const [chatHistory] = useState<ChatHistory[]>([])
 
-  const handleSendMessage = (content: string, files: File[]) => {
+  const handleSendMessage = (content: string, _files: File[]) => {
     // Add user message (mock)
     const userMessage: Message = {
       id: Date.now().toString(),

@@ -88,8 +88,7 @@ export interface PolicyCoverageTypeUpdate {
 
 export interface Rule {
   id: string
-  questionnaire_id: string | null
-  question_id: string | null
+  coverage_type_id: string
   rule_type: 'conditional' | 'validation' | 'document' | 'eligibility' | 'calculation'
   name: string
   description: string | null
@@ -103,8 +102,7 @@ export interface Rule {
 }
 
 export interface RuleInsert {
-  questionnaire_id?: string | null
-  question_id?: string | null
+  coverage_type_id: string
   rule_type: 'conditional' | 'validation' | 'document' | 'eligibility' | 'calculation'
   name: string
   description?: string | null
@@ -116,8 +114,7 @@ export interface RuleInsert {
 }
 
 export interface RuleUpdate {
-  questionnaire_id?: string | null
-  question_id?: string | null
+  coverage_type_id?: string
   rule_type?: 'conditional' | 'validation' | 'document' | 'eligibility' | 'calculation'
   name?: string
   description?: string | null
@@ -178,6 +175,10 @@ export interface PolicyUpdate {
 // Questionnaires
 // ============================================
 
+/**
+ * @deprecated Questionnaires removed. Use CoverageTypeWithQuestions instead.
+ * Kept for backward compatibility during migration.
+ */
 export interface Questionnaire {
   id: string
   claim_type: ClaimType | null // @deprecated - use coverage_type_id
@@ -194,6 +195,9 @@ export interface Questionnaire {
   updated_at: string
 }
 
+/**
+ * @deprecated Questionnaires removed. Use CoverageTypeWithQuestions instead.
+ */
 export interface QuestionnaireInsert {
   claim_type?: ClaimType | null // @deprecated - use coverage_type_id
   coverage_type_id?: string | null
@@ -207,6 +211,9 @@ export interface QuestionnaireInsert {
   is_active?: boolean
 }
 
+/**
+ * @deprecated Questionnaires removed. Use CoverageTypeWithQuestions instead.
+ */
 export interface QuestionnaireUpdate {
   claim_type?: ClaimType | null // @deprecated - use coverage_type_id
   coverage_type_id?: string | null
@@ -222,7 +229,7 @@ export interface QuestionnaireUpdate {
 
 export interface Question {
   id: string
-  questionnaire_id: string
+  coverage_type_id: string // CHANGED: was questionnaire_id
   question_text: string
   field_type: FieldType
   is_required: boolean
@@ -235,7 +242,7 @@ export interface Question {
 }
 
 export interface QuestionInsert {
-  questionnaire_id: string
+  coverage_type_id: string // CHANGED: was questionnaire_id
   question_text: string
   field_type: FieldType
   is_required?: boolean
@@ -246,6 +253,7 @@ export interface QuestionInsert {
 }
 
 export interface QuestionUpdate {
+  coverage_type_id?: string // ADDED: for reassigning questions
   question_text?: string
   field_type?: FieldType
   is_required?: boolean
@@ -259,24 +267,46 @@ export interface QuestionUpdate {
 // Extended Types (with relationships)
 // ============================================
 
-export interface QuestionnaireWithQuestions extends Questionnaire {
+// NEW: Coverage types with questions
+export interface CoverageTypeWithQuestions extends CoverageType {
   questions: Question[]
 }
 
-export interface QuestionnaireWithRules extends Questionnaire {
-  questions: Question[]
+export interface CoverageTypeWithRules extends CoverageType {
   rules: Rule[]
-}
-
-export interface QuestionnaireWithCoverageType extends Questionnaire {
-  coverage_type: CoverageType | null
-  questions: Question[]
 }
 
 export interface PolicyWithCoverageTypes extends Omit<Policy, 'coverage_items'> {
   policy_coverage_types: Array<PolicyCoverageType & { coverage_type: CoverageType }>
 }
 
+// DEPRECATED: Questionnaire-related extended types
+/**
+ * @deprecated Questionnaires removed. Use CoverageTypeWithQuestions instead.
+ */
+export interface QuestionnaireWithQuestions extends Questionnaire {
+  questions: Question[]
+}
+
+/**
+ * @deprecated Questionnaires removed. Use CoverageTypeWithQuestions instead.
+ */
+export interface QuestionnaireWithRules extends Questionnaire {
+  questions: Question[]
+  rules: Rule[]
+}
+
+/**
+ * @deprecated Questionnaires removed. Use CoverageTypeWithQuestions instead.
+ */
+export interface QuestionnaireWithCoverageType extends Questionnaire {
+  coverage_type: CoverageType | null
+  questions: Question[]
+}
+
+/**
+ * @deprecated Questionnaires removed. Use CoverageTypeWithQuestions instead.
+ */
 export interface CoverageTypeWithQuestionnaire extends CoverageType {
   questionnaire: Questionnaire | null
 }
