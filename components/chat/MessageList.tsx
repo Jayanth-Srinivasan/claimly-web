@@ -3,13 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { ChatMessage } from './ChatMessage'
 import { Sparkles, FileText, ClipboardList, HelpCircle, Shield } from 'lucide-react'
-
-interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
-}
+import type { Message } from '@/types/chat'
 
 interface MessageListProps {
   messages: Message[]

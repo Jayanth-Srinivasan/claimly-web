@@ -1,22 +1,84 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { MessageSquare, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-interface ChatHistory {
-  id: string
-  title: string
-  lastMessage: string
-  timestamp: Date
-}
+import { ChatHistoryList } from './ChatHistoryList'
+import type { ChatHistoryItem } from '@/types/chat'
+import type { Profile } from '@/types/auth'
+import { getAllPolicyChatSessions } from '@/lib/chat/local-storage'
+import { getClaimChatsAction } from '@/app/chat/actions'
 
 interface ChatSidebarProps {
   isOpen: boolean
   onToggle: () => void
-  chatHistory: ChatHistory[]
+  currentMode: 'policy' | 'claim'
+  currentSessionId: string | null
+  onSessionSelect: (mode: 'policy' | 'claim', sessionId: string) => void
+  profile: Profile
 }
 
-export function ChatSidebar({ isOpen, onToggle, chatHistory }: ChatSidebarProps) {
+export function ChatSidebar({
+  isOpen,
+  onToggle,
+  currentMode,
+  currentSessionId,
+  onSessionSelect,
+  profile,
+}: ChatSidebarProps) {
+  const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([])
+  const [loading, setLoading] = useState(false)
+
+  // Load chat history when sidebar opens or mode changes
+  useEffect(() => {
+    if (isOpen) {
+      loadChatHistory()
+    }
+  }, [isOpen, currentMode])
+
+  const loadChatHistory = async () => {
+    setLoading(true)
+
+    const history: ChatHistoryItem[] = []
+
+    // Load policy chats from localStorage
+    const policySessions = getAllPolicyChatSessions()
+    history.push(
+      ...policySessions.map((session) => ({
+        id: session.id,
+        title: session.title,
+        mode: 'policy' as const,
+        lastMessage:
+          session.messages[session.messages.length - 1]?.content ||
+          'No messages',
+        timestamp: new Date(session.updated_at),
+        messageCount: session.messages.length,
+        isArchived: false,
+      }))
+    )
+
+    // Load claim chats from database
+    const result = await getClaimChatsAction()
+    if (result.success && result.sessions) {
+      history.push(
+        ...result.sessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          mode: 'claim' as const,
+          lastMessage: 'Click to load messages',
+          timestamp: new Date(session.updated_at),
+          messageCount: 0,
+          isArchived: session.is_archived,
+        }))
+      )
+    }
+
+    // Sort by timestamp (most recent first)
+    history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+
+    setChatHistory(history)
+    setLoading(false)
+  }
   return (
     <>
       {/* Overlay backdrop */}
@@ -57,27 +119,12 @@ export function ChatSidebar({ isOpen, onToggle, chatHistory }: ChatSidebarProps)
 
           {/* Chat History */}
           <div className="flex-1 overflow-y-auto p-4">
-            {chatHistory.length === 0 ? (
-              <div className="text-center py-8 text-black/40 dark:text-white/40 text-sm">
-                No conversations yet
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {chatHistory.map((chat) => (
-                  <button
-                    key={chat.id}
-                    className="w-full text-left p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                  >
-                    <div className="font-medium text-sm text-black dark:text-white truncate">
-                      {chat.title}
-                    </div>
-                    <div className="text-xs text-black/60 dark:text-white/60 truncate mt-1">
-                      {chat.lastMessage}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+            <ChatHistoryList
+              history={chatHistory}
+              currentSessionId={currentSessionId}
+              onSelect={onSessionSelect}
+              loading={loading}
+            />
           </div>
         </div>
       </aside>

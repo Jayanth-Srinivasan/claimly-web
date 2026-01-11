@@ -352,6 +352,115 @@ export interface Database {
           updated_at?: string
         }
       }
+      user_policies: {
+        Row: {
+          id: string
+          user_id: string
+          policy_id: string
+          policy_name: string
+          enrolled_at: string
+          expires_at: string | null
+          coverage_items: Json
+          total_premium: number | null
+          currency: string
+          is_active: boolean
+          status: string
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          policy_id: string
+          policy_name: string
+          enrolled_at?: string
+          expires_at?: string | null
+          coverage_items?: Json
+          total_premium?: number | null
+          currency?: string
+          is_active?: boolean
+          status?: string
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          policy_id?: string
+          policy_name?: string
+          enrolled_at?: string
+          expires_at?: string | null
+          coverage_items?: Json
+          total_premium?: number | null
+          currency?: string
+          is_active?: boolean
+          status?: string
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      chat_sessions: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          mode: 'policy' | 'claim'
+          is_archived: boolean
+          archived_at: string | null
+          claim_id: string | null
+          created_at: string
+          updated_at: string
+          share_code: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title?: string
+          mode: 'policy' | 'claim'
+          is_archived?: boolean
+          archived_at?: string | null
+          claim_id?: string | null
+          created_at?: string
+          updated_at?: string
+          share_code?: string | null
+        }
+        Update: {
+          title?: string
+          is_archived?: boolean
+          archived_at?: string | null
+          claim_id?: string | null
+        }
+      }
+      chat_messages: {
+        Row: {
+          id: string
+          session_id: string
+          role: 'user' | 'assistant' | 'system'
+          content: string
+          attached_file_ids: string[]
+          sources: Json | null
+          reports: Json | null
+          analysis: Json | null
+          charts: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          role: 'user' | 'assistant' | 'system'
+          content: string
+          attached_file_ids?: string[]
+          sources?: Json | null
+          reports?: Json | null
+          analysis?: Json | null
+          charts?: Json | null
+          created_at?: string
+        }
+        Update: {}
+      }
     }
     Views: {
       [_ in never]: never

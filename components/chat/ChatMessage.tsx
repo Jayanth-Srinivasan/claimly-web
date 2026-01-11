@@ -2,13 +2,7 @@
 
 import { User, Bot } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
-}
+import type { Message } from '@/types/chat'
 
 interface ChatMessageProps {
   message: Message
