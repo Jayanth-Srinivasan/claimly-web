@@ -120,13 +120,13 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_intake_state',
-      description: 'Get the current claim intake state for the session. Returns current stage, questions asked, validation status, and other progress information.',
+      description: 'Get the current claim intake state for the session. Returns current stage, questions asked, validation status, and other progress information. ALWAYS call this first when starting a new claim or checking progress. The session_id is automatically provided by the system.',
       parameters: {
         type: 'object',
         properties: {
           session_id: {
             type: 'string',
-            description: 'The chat session ID',
+            description: 'The chat session ID (automatically provided by the system)',
           },
         },
         required: ['session_id'],
@@ -137,7 +137,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_intake_state',
-      description: 'Update the claim intake state. Use this to track progress, update stage, mark questions as asked, and update validation status.',
+      description: 'Update the claim intake state. Use this to track progress, update stage, mark questions as asked, and update validation status. IMPORTANT: When you set coverage_type_ids and move to categorization stage, the system automatically creates a DRAFT claim that will be used for saving answers. The session_id is automatically provided by the system.',
       parameters: {
         type: 'object',
         properties: {
@@ -189,7 +189,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_coverage_questions',
-      description: 'Get all questions configured for a coverage type. Returns questions ordered by order_index, including field types and validation rules.',
+      description: 'Get all questions configured for a coverage type. Returns questions ordered by order_index, including field types and validation rules. MANDATORY: Use this to get ALL questions from the database that you must ask the user. Do not invent questions - use only the questions returned by this tool.',
       parameters: {
         type: 'object',
         properties: {
@@ -205,14 +205,48 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'save_answer',
-      description: 'Save an answer to a question. Stores the answer and evaluates it against rules.',
+      name: 'get_coverage_rules',
+      description: 'Get all active rules configured for a coverage type. Returns rules including conditions, actions, and validation logic. Use this to understand what validation rules apply and what additional information might be required based on answers. Rules can help determine which questions to ask next or what documents are needed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          coverage_type_id: {
+            type: 'string',
+            description: 'The coverage type ID to get rules for',
+          },
+        },
+        required: ['coverage_type_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_extracted_info',
+      description: 'Get all extracted information for a claim. This includes all data extracted from user messages, documents, and AI analysis. Use this before creating a claim to ensure you have all necessary information to populate claim fields like incident_date, incident_location, total_claimed_amount, and incident_type.',
       parameters: {
         type: 'object',
         properties: {
           claim_id: {
             type: 'string',
-            description: 'The claim ID (or intake state ID if claim not yet created)',
+            description: 'The claim ID to get extracted information for',
+          },
+        },
+        required: ['claim_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'save_answer',
+      description: 'Save an answer to a question. Stores the answer and evaluates it against rules. If no claim exists yet, use the session_id as claim_id - the system will create a draft claim automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          claim_id: {
+            type: 'string',
+            description: 'The claim ID. If no claim exists yet, use the session_id - the system will handle creating a draft claim automatically.',
           },
           question_id: {
             type: 'string',
@@ -270,7 +304,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'extract_document_info',
-      description: 'Extract information from uploaded documents using AI. Validates document type, extracts text/data, and checks for authenticity.',
+      description: 'Extract information from uploaded documents using AI. Validates document type, extracts text/data, and checks for authenticity. IMPORTANT: After calling this tool, you MUST provide a response to the user summarizing what was extracted. Do not just say "let me process" and stop - complete the extraction and respond immediately.',
       parameters: {
         type: 'object',
         properties: {
@@ -330,7 +364,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'create_claim',
-      description: 'Create a new claim record after all information is collected and validated. Sets status to pending and links to the chat session.',
+      description: 'Finalize the claim after all information is collected and validated. IMPORTANT: A draft claim is usually already created during categorization. This function automatically reads extracted information, claim answers, and user policies to populate all claim fields including incident_date, incident_location, incident_type, total_claimed_amount, claim_summary, and ai_analysis. It updates the existing draft claim from "draft" to "pending" status. Sets status to pending and links to the chat session. Returns JSON string: {"success":true,"data":{"claimId":"<UUID>","claimNumber":"CLM-XXXXX-XXXX","status":"pending"}}. CRITICAL: You MUST parse this JSON, extract data.claimId (UUID format like "7f6be445-4698-4845-a4ac-6b08a78a5908") and data.claimNumber (format like "CLM-MKBT3FJE-8868") EXACTLY as returned. DO NOT make up values like "CLAIM12345" or "FC-78910" - these are WRONG. Use the values EXACTLY as provided in the tool response. After providing the claim details, inform the user the chat session is now closed. RECOMMENDED: Call get_extracted_info before this to review collected data.',
       parameters: {
         type: 'object',
         properties: {

@@ -19,18 +19,65 @@ export interface DocumentExtraction {
  * Extract information from a document using OpenAI Vision API
  */
 export async function extractDocumentInfo(
-  document: UploadedFile | { path: string; mimeType?: string },
+  document: UploadedFile | { path: string; mimeType?: string; url?: string },
   expectedType?: string
 ): Promise<DocumentExtraction> {
   const client = createOpenAIClient()
 
-  // For now, we'll use a text-based approach
-  // In production, you'd fetch the actual file and use Vision API
-  // This is a placeholder that shows the structure
-
   try {
-    // If we have a file path, we could fetch it and process
-    // For now, return a structure that can be enhanced
+    // Get the file URL - prefer provided URL, otherwise generate signed URL
+    let fileUrl = 'url' in document ? document.url : undefined
+    
+    if (!fileUrl && 'path' in document) {
+      // Generate signed URL from path
+      const { createClient } = await import('@/lib/supabase/server')
+      const supabase = await createClient()
+      const bucket = 'claim-documents'
+      const path = document.path
+      
+      const { data: signedData } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(path, 3600)
+      
+      if (signedData?.signedUrl) {
+        fileUrl = signedData.signedUrl
+      }
+    }
+    
+    if (!fileUrl) {
+      throw new Error('Could not get file URL for document processing')
+    }
+
+    // Determine if it's an image or PDF
+    const mimeType = 'type' in document ? document.type : document.mimeType
+    const isImage = mimeType?.startsWith('image/')
+    const isPDF = mimeType === 'application/pdf'
+    
+    // Build message content with image/document
+    const messageContent: Array<
+      | { type: 'text'; text: string }
+      | { type: 'image_url'; image_url: { url: string } }
+    > = [
+      {
+        type: 'text',
+        text: `Analyze this ${expectedType || (isImage ? 'image' : isPDF ? 'PDF document' : 'document')} and extract all relevant information.`,
+      },
+    ]
+    
+    // Add image URL if it's an image
+    if (isImage && fileUrl) {
+      messageContent.push({
+        type: 'image_url',
+        image_url: { url: fileUrl },
+      })
+    } else if (isPDF) {
+      // For PDFs, we can't use vision API directly, so we'll note it
+      messageContent.push({
+        type: 'text',
+        text: `\n\nThis is a PDF document. File path: ${document.path}. Please note that PDF content extraction requires additional processing.`,
+      })
+    }
+
     const response = await client.chat.completions.create({
       model: 'gpt-4o', // GPT-4o supports vision
       messages: [
@@ -39,8 +86,8 @@ export async function extractDocumentInfo(
           content: `You are a document analysis assistant. Analyze documents and extract structured information.
 
 Extract:
-- Document type (receipt, invoice, medical_report, etc.)
-- Key entities (amounts, dates, names, locations, etc.)
+- Document type (receipt, invoice, medical_report, flight_cancellation, etc.)
+- Key entities (amounts, dates, names, locations, flight numbers, etc.)
 - Any text content (OCR)
 - Auto-fillable fields
 - Validation checks (amounts match, dates are valid, etc.)
@@ -55,11 +102,7 @@ Respond in JSON format with: {
         },
         {
           role: 'user',
-          content: `Analyze this document${expectedType ? ` (expected type: ${expectedType})` : ''}. 
-File path: ${document.path}
-MIME type: ${document.mimeType || 'unknown'}
-
-Note: In production, this would include the actual file content via Vision API.`,
+          content: messageContent as unknown as string, // OpenAI handles array format
         },
       ],
       temperature: 0.2,

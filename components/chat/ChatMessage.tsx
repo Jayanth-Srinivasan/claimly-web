@@ -4,6 +4,7 @@ import { User, Bot } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Message } from '@/types/chat'
 import { FormattedMessage } from './FormattedMessage'
+import { FilePreviewInMessage } from './FilePreviewInMessage'
 
 interface ChatMessageProps {
   message: Message
@@ -34,16 +35,28 @@ export function ChatMessage({ message }: ChatMessageProps) {
       <div className={cn('flex flex-col gap-1.5 max-w-[75%] md:max-w-[65%]', isUser && 'items-end')}>
         <div
           className={cn(
-            'rounded-2xl px-4 py-3 text-sm leading-relaxed',
+            'rounded-2xl px-4 py-3 text-sm leading-relaxed flex flex-col gap-2',
             isUser
               ? 'bg-linear-to-br from-black to-black/90 dark:from-white dark:to-white/90 text-white dark:text-black shadow-md whitespace-pre-wrap'
               : 'bg-black/3 dark:bg-white/3 border border-black/5 dark:border-white/5 text-black dark:text-white'
           )}
         >
-          {isUser ? (
-            message.content
-          ) : (
-            <FormattedMessage content={message.content} />
+          {/* File Previews */}
+          {message.attached_file_ids && message.attached_file_ids.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {message.attached_file_ids.map((fileId, index) => (
+                <FilePreviewInMessage key={`${fileId}-${index}`} fileId={fileId} />
+              ))}
+            </div>
+          )}
+          
+          {/* Message Text */}
+          {message.content && (
+            isUser ? (
+              <div>{message.content}</div>
+            ) : (
+              <FormattedMessage content={message.content} />
+            )
           )}
         </div>
         <span className="text-[10px] text-black/30 dark:text-white/30 px-2 font-medium">

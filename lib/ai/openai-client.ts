@@ -99,23 +99,130 @@ DATA STRUCTURE - CRITICAL:
 
 IMPORTANT: You must use tools to access real data. Do not invent or assume policy information. The coverage_details array in suggest_policies response contains all the coverage information you need. Always extract and present this data clearly to the user.`
   } else {
+    // Read from markdown file if available
+    try {
+      const fs = await import('fs/promises')
+      const path = await import('path')
+      const filePath = path.join(process.cwd(), 'lib', 'ai', 'system-prompts.md')
+      const content = await fs.readFile(filePath, 'utf-8')
+      
+      // Extract Claims Chat Mode section
+      const claimsMatch = content.match(/## Claims Chat Mode([\s\S]*?)(?=##|$)/)
+      if (claimsMatch) {
+        return claimsMatch[1].trim()
+      }
+    } catch (error) {
+      console.error('Failed to read system prompts from markdown:', error)
+    }
+
+    // Fallback to hardcoded prompt
     return `You are a professional and empathetic claims intake assistant. Your role is to guide users through the claims filing process.
 
 CRITICAL RULES:
 1. ALWAYS use the available tools to access data from the database
-2. After executing tools, ALWAYS provide a clear response based on the tool results
+2. After executing tools, ALWAYS provide a clear, conversational response based on the tool results
 3. Never make up information - use tools to get real data
+4. **NEVER mention session IDs, technical errors, database issues, or any problems to users** - handle them completely internally
+5. **If a tool returns an error (success: false), DO NOT mention it to the user** - try the tool again or proceed with available information
+6. **NEVER say phrases like "there was an issue", "error occurred", "problem with the system"** - always be positive and proceed smoothly
+7. Follow the workflow stages systematically
+8. If something doesn't work, silently retry or continue with the conversation naturally
 
-Your Responsibilities:
-1. Categorize incidents into appropriate coverage types using categorize_incident
-2. Ask questions from the database for the identified coverage type using get_coverage_questions
-3. Validate answers against configured rules using validate_answers
-4. Request and validate relevant documents
-5. Extract information from documents using AI with extract_document_info
-6. Create claims after all information is collected using create_claim
-7. Detect user's emotional tone and respond empathetically using detect_tone
+WORKFLOW (Follow Strictly):
+1. When user says "I need to file a new claim": 
+   - Call get_intake_state (session_id is auto-provided)
+   - If stage is initial_contact or null, ask: "Could you please provide a brief description of the incident? This will help me categorize it into the appropriate coverage type."
+   - NEVER mention session IDs or technical errors
 
-Workflow: Initial Contact → Categorization → Questioning → Document Collection → Validation → Claim Creation
+2. When user provides incident description (e.g., "My flight is cancelled"):
+   - IMMEDIATELY call categorize_incident with the description - DO THIS FIRST, before anything else
+   - Extract the top coverage_type_id from matches (highest confidence score)
+   - Call update_intake_state with:
+     * session_id (auto-provided by system)
+     * current_stage='categorization'
+     * coverage_type_ids=[top coverage_type_id from matches array]
+     * incident_description=user's description
+   - If update_intake_state returns success: false, DO NOT mention it - try again or proceed
+   - Call get_coverage_questions with the coverage_type_id to get all questions
+   - Call get_intake_state again to see database_questions_asked array
+   - Find the FIRST question (by order_index) that is NOT in database_questions_asked
+   - Ask that ONE question to the user in a conversational, empathetic way
+   - NEVER mention errors, issues, or problems - always proceed smoothly and positively
+
+3. When user uploads images/documents:
+   - **IMAGES**: You can SEE the images directly in the message - they are included as image content
+   - **IMMEDIATELY** analyze the image(s) - read all text, identify document types, extract key information
+   - For flight cancellations: extract flight numbers, dates, airlines, cancellation reasons, amounts, booking references
+   - **THEN** call save_extracted_info for EACH piece of information extracted
+   - **THEN** provide a detailed summary: "I've analyzed your document and extracted: [list findings]. This has been saved to your claim."
+   - **DO NOT** say "let me process" and stop - complete the analysis and respond immediately
+   - **PDFs**: **IMMEDIATELY** call extract_document_info with the file path and claim_id, wait for response, then provide a summary to the user
+   - **CRITICAL**: Always complete processing and respond in the same turn - never leave the user waiting
+
+3. For each answer:
+   - Call save_answer with claim_id=session_id (system auto-creates draft claim)
+   - Call update_intake_state to add question_id to database_questions_asked
+   - Ask the NEXT unanswered question
+
+4. When user uploads images/documents:
+   - **IMAGES**: You can SEE the images directly in the message - they are included as image content
+   - Analyze the image(s) you see: read all text, identify document types, extract key information
+   - For flight cancellations: extract flight numbers, dates, airlines, cancellation reasons, amounts, booking references
+   - Provide a detailed, helpful summary of what you extracted from the image
+   - Call save_extracted_info to save the information
+   - Thank the user and confirm what you found
+   - **PDFs**: Call extract_document_info with the file path
+
+5. After all questions and documents:
+   - Call validate_answers
+   - If valid: proceed to claim creation
+   - If invalid: ask for corrections
+
+6. When ready to finalize claim:
+   - **BEFORE calling create_claim, call get_extracted_info** with the claim_id to review all collected information
+   - Use extracted information to populate claim fields (incident_date, incident_location, incident_type, total_claimed_amount)
+   - Ensure all fields are populated - do not use placeholder values like "TBD" or "pending"
+   - Call create_claim with all information
+   - **ABSOLUTELY CRITICAL - MANDATORY**: When create_claim returns success, the tool response is a JSON string like:
+     {"success":true,"data":{"claimId":"7f6be445-4698-4845-a4ac-6b08a78a5908","claimNumber":"CLM-MKBT3FJE-8868","status":"pending"}}
+     You MUST:
+     * **FIRST**: Parse this JSON string to get the object
+     * **THEN**: Extract the EXACT values from data.claimId (UUID format), data.claimNumber (CLM-XXXXX-XXXX format), and data.status
+     * **EXAMPLE**: If tool returns claimId "abc-123" and claimNumber "CLM-XYZ-789", use exactly those - DO NOT change them
+     * **MANDATORY RESPONSE FORMAT**: Provide the user with a clear message that MUST include:
+       - "Your claim has been successfully filed!"
+       - **"Claim ID: [EXACT claimId UUID from tool response - copy exactly, do not modify]"**
+       - **"Claim Number: [EXACT claimNumber from tool response - copy exactly, do not modify]"**
+       - "Status: [EXACT status from tool response]"
+       - "Please save these reference details for your records."
+       - "This chat session is now closed. To file another claim, please create a new chat session."
+     * **DO NOT** make up values like "CLAIM12345" or "FC-78910" - these are WRONG
+     * **DO NOT** modify or format the values - use them EXACTLY as returned
+     * **DO NOT** say "your claim is being processed" or "we will notify you" without providing the claim ID and claim number
+     * **DO NOT** omit the claim ID - it is REQUIRED in every final response
+     * Claim ID format: UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), Claim Number format: CLM-XXXXX-XXXX
+   - After providing this information, DO NOT accept any further messages from the user in this session - the chat is complete
+
+TOOL USAGE:
+- get_intake_state: ALWAYS call this first to check current progress
+- categorize_incident: Use when user describes their incident
+- get_coverage_questions: MANDATORY - Use after categorization to get ALL questions from database - you MUST use these questions, do not invent questions
+- get_coverage_rules: RECOMMENDED - Use to understand validation rules and conditional logic that can guide your questioning
+- save_answer: Use immediately after receiving each answer
+- update_intake_state: Use to track progress and stage
+- validate_answers: Use after collecting all answers
+- get_extracted_info: MANDATORY - Use BEFORE create_claim to review all collected information and ensure all fields are populated
+- create_claim: Use when all information is collected - MUST extract and display claimId and claimNumber from response
+
+RESPONSE STYLE:
+- Be conversational and empathetic
+- Ask ONE question at a time
+- NEVER mention technical details like session IDs, errors, or database issues
+- NEVER say "there was an issue" or "error occurred" - handle problems silently
+- If a tool call fails, try again or proceed with available information
+- Provide clear, helpful responses based on tool results
+- Guide the user through the process step by step
+- Always be positive and supportive - never show uncertainty or errors to users
 
 Always be thorough, professional, and supportive.`
   }
@@ -123,14 +230,23 @@ Always be thorough, professional, and supportive.`
 
 /**
  * Chat completion with tool calling support
+ * Supports both text and image content (for vision API)
  */
 export async function chatCompletion(
   client: OpenAI,
   messages: Array<{
     role: 'system' | 'user' | 'assistant' | 'tool'
-    content: string | null
+    content: string | null | Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }>
     name?: string
     tool_call_id?: string
+    tool_calls?: Array<{
+      id: string
+      type: 'function'
+      function: {
+        name: string
+        arguments: string
+      }
+    }>
   }>,
   tools?: Array<{
     type: 'function'
@@ -142,9 +258,98 @@ export async function chatCompletion(
   }>,
   toolChoice: 'auto' | 'none' | { type: 'function'; function: { name: string } } = 'auto'
 ) {
+  // Validate and filter messages to ensure tool messages are properly structured
+  // Tool messages must follow an assistant message with tool_calls
+  const validatedMessages: typeof messages = []
+  
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    
+    // If it's a tool message, validate it has a preceding assistant message
+    if (msg.role === 'tool') {
+      if (!msg.tool_call_id) {
+        // Skip tool messages without tool_call_id
+        console.warn('Skipping tool message without tool_call_id')
+        continue
+      }
+      
+      // Find the immediately preceding assistant message
+      let foundValidAssistant = false
+      for (let j = i - 1; j >= 0; j--) {
+        const prevMsg = messages[j]
+        if (prevMsg.role === 'assistant') {
+          // Check if this assistant message has tool_calls
+          if (prevMsg.tool_calls && prevMsg.tool_calls.length > 0) {
+            // Verify the tool_call_id matches one of the tool_call ids
+            const toolCallExists = prevMsg.tool_calls.some(tc => tc.id === msg.tool_call_id)
+            if (toolCallExists) {
+              foundValidAssistant = true
+              break
+            }
+          }
+          // If assistant doesn't have tool_calls or tool_call_id doesn't match, this tool message is invalid
+          break
+        } else if (prevMsg.role === 'tool') {
+          // Skip over other tool messages to find the assistant
+          continue
+        } else {
+          // Hit a non-assistant, non-tool message - no valid assistant found
+          break
+        }
+      }
+      
+      // Only include tool message if it has a preceding assistant message
+      if (foundValidAssistant) {
+        validatedMessages.push(msg)
+      } else {
+        // Skip invalid tool messages
+        console.warn('Skipping tool message - no preceding assistant message found')
+        continue
+      }
+    } else {
+      // For non-tool messages, include them as-is
+      validatedMessages.push(msg)
+    }
+  }
+
+  // Convert messages to OpenAI format, handling both string and array content
+  const openAIMessages = validatedMessages.map((msg) => {
+    if (Array.isArray(msg.content)) {
+      // Content is an array (text + images) - use as-is
+      return {
+        role: msg.role,
+        content: msg.content,
+        ...(msg.role === 'assistant' && msg.tool_calls ? { tool_calls: msg.tool_calls } : {}),
+      } as OpenAI.Chat.Completions.ChatCompletionMessageParam
+    } else {
+      // Content is a string - use as-is
+      const baseMessage: any = {
+        role: msg.role,
+        content: msg.content,
+      }
+      
+      // Add tool_calls for assistant messages
+      if (msg.role === 'assistant' && msg.tool_calls) {
+        baseMessage.tool_calls = msg.tool_calls
+      }
+      
+      // Add tool_call_id for tool messages
+      if (msg.role === 'tool' && msg.tool_call_id) {
+        baseMessage.tool_call_id = msg.tool_call_id
+      }
+      
+      // Add name if present
+      if (msg.name) {
+        baseMessage.name = msg.name
+      }
+      
+      return baseMessage as OpenAI.Chat.Completions.ChatCompletionMessageParam
+    }
+  })
+
   const response = await client.chat.completions.create({
-    model: 'gpt-4o', // Using GPT-4o for better tool calling support
-    messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    model: 'gpt-4o', // Using GPT-4o for better tool calling and vision support
+    messages: openAIMessages,
     tools: tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
     tool_choice: toolChoice === 'auto' ? 'auto' : toolChoice === 'none' ? 'none' : toolChoice,
     temperature: 0.7,

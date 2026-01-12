@@ -391,15 +391,32 @@ export async function processChatMessageAction(
 
     // Get conversation history
     const dbMessages = await getSessionMessages(sessionId)
-    const messages = dbMessages.map(dbMessageToMessage)
+    // Filter out any tool messages (shouldn't exist, but be safe)
+    const validDbMessages = dbMessages.filter(
+      (msg) => msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system'
+    )
+    const messages = validDbMessages.map(dbMessageToMessage)
 
     // Prepare messages for OpenAI
     const systemPrompt = await getSystemPrompt(mode)
+    type MessageContent = 
+      | string 
+      | null 
+      | Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }>
+    
     const openAIMessages: Array<{
       role: 'system' | 'user' | 'assistant' | 'tool'
-      content: string | null
+      content: MessageContent
       name?: string
       tool_call_id?: string
+      tool_calls?: Array<{
+        id: string
+        type: 'function'
+        function: {
+          name: string
+          arguments: string
+        }
+      }>
     }> = [
       {
         role: 'system',
@@ -408,14 +425,104 @@ export async function processChatMessageAction(
     ]
 
     // Add conversation history (last 20 messages to avoid token limits)
+    // IMPORTANT: Only include 'user' and 'assistant' messages from history
+    // Tool messages should NOT be included in history - they're only used within a single API call iteration
     const recentMessages = messages.slice(-20)
     for (const msg of recentMessages) {
+      // Only include user and assistant messages - never include tool messages in history
+      // Double-check role to be absolutely safe
       if (msg.role === 'user' || msg.role === 'assistant') {
+        // For history, just use text content (images from history are already processed)
         openAIMessages.push({
           role: msg.role,
           content: msg.content,
         })
       }
+      // Explicitly skip any tool messages - they should not be in conversation history
+    }
+    
+    // If current message has files, include them in the message with image URLs
+    if (attachedFileIds && attachedFileIds.length > 0) {
+      // Get signed URLs for all files
+      const fileUrls: Array<{ fileId: string; url: string; type: string }> = []
+      
+      for (const fileId of attachedFileIds) {
+        try {
+          const supabase = await createClient()
+          const bucket = 'claim-documents'
+          const path = fileId
+          
+          // Get signed URL
+          const { data: signedData } = await supabase.storage
+            .from(bucket)
+            .createSignedUrl(path, 3600)
+          
+          if (signedData?.signedUrl) {
+            // Determine file type
+            const ext = path.split('.').pop()?.toLowerCase() || ''
+            const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
+            fileUrls.push({
+              fileId,
+              url: signedData.signedUrl,
+              type: isImage ? 'image' : 'document',
+            })
+          }
+        } catch (err) {
+          console.error('Error getting file URL:', err)
+        }
+      }
+      
+      // Build message content with images
+      const imageUrls = fileUrls.filter(f => f.type === 'image').map(f => f.url)
+      const documentPaths = fileUrls.filter(f => f.type !== 'image').map(f => f.fileId)
+      
+      // Create message content array for OpenAI (supports images)
+      const messageContent: Array<
+        | { type: 'text'; text: string }
+        | { type: 'image_url'; image_url: { url: string } }
+      > = []
+      
+      // Add text content
+      if (userMessage) {
+        messageContent.push({ type: 'text', text: userMessage })
+      }
+      
+      // Add image URLs for vision API
+      for (const imageUrl of imageUrls) {
+        messageContent.push({
+          type: 'image_url',
+          image_url: { url: imageUrl },
+        })
+      }
+      
+      // Add text about documents if any
+      if (documentPaths.length > 0) {
+        messageContent.push({
+          type: 'text',
+          text: `\n\n[User has also uploaded ${documentPaths.length} document(s): ${documentPaths.join(', ')}. Please process these using extract_document_info tool.]`,
+        })
+      }
+      
+      // Add user message with images (OpenAI supports array format for content)
+      if (messageContent.length === 1 && messageContent[0].type === 'text') {
+        // Only text, use string format
+        openAIMessages.push({
+          role: 'user',
+          content: messageContent[0].text || '',
+        })
+      } else {
+        // Has images, use array format
+        openAIMessages.push({
+          role: 'user',
+          content: messageContent,
+        })
+      }
+    } else if (userMessage) {
+      // No files, just add text message
+      openAIMessages.push({
+        role: 'user',
+        content: userMessage,
+      })
     }
 
     // Get tools for mode
@@ -427,7 +534,8 @@ export async function processChatMessageAction(
     // Iterative tool calling with max iterations
     const MAX_ITERATIONS = 5
     let iteration = 0
-    let currentMessages = openAIMessages
+    // Start with a fresh copy of messages - don't mutate the original
+    let currentMessages = [...openAIMessages]
     let finalResponse = ''
 
     while (iteration < MAX_ITERATIONS) {
@@ -440,18 +548,35 @@ export async function processChatMessageAction(
       }
 
       // Add assistant message to conversation
-      currentMessages.push({
+      // Only include tool_calls if they exist
+      const assistantMessage: {
+        role: 'assistant'
+        content: string | null
+        tool_calls?: Array<{
+          id: string
+          type: 'function'
+          function: {
+            name: string
+            arguments: string
+          }
+        }>
+      } = {
         role: 'assistant',
         content: message.content,
-        tool_calls: message.tool_calls?.map((tc) => ({
+      }
+      
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        assistantMessage.tool_calls = message.tool_calls.map((tc) => ({
           id: tc.id,
           type: 'function' as const,
           function: {
             name: tc.function.name,
             arguments: tc.function.arguments,
           },
-        })),
-      })
+        }))
+      }
+      
+      currentMessages.push(assistantMessage)
 
       // If there are tool calls, execute them
       const toolCalls = message.tool_calls || []
@@ -516,7 +641,10 @@ export async function processChatMessageAction(
       }
 
       // Add tool results to messages for next iteration
-      currentMessages.push(...toolResults)
+      // Only add tool results if we have an assistant message with tool_calls
+      if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+        currentMessages.push(...toolResults)
+      }
       iteration++
     }
 

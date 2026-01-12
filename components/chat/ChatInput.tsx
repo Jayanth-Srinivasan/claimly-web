@@ -15,9 +15,11 @@ interface ChatInputProps {
   onSendMessage: (content: string, files: File[]) => void
   isUploading?: boolean
   allowAttachments?: boolean
+  disabled?: boolean
+  disabledMessage?: string
 }
 
-export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments = true }: ChatInputProps) {
+export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments = true, disabled = false, disabledMessage }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [showCamera, setShowCamera] = useState(false)
@@ -35,6 +37,7 @@ export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments =
   }, [mode, allowAttachments])
 
   const handleSend = () => {
+    if (disabled) return
     if (!message.trim() && files.length === 0) return
 
     onSendMessage(message, mode === 'claim' && allowAttachments ? files : [])
@@ -162,8 +165,15 @@ export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments =
 
       <div className="border-t border-black/10 dark:border-white/10 bg-white dark:bg-black">
         <div className="max-w-4xl mx-auto p-4 space-y-3">
+        {/* Disabled Message */}
+        {disabled && disabledMessage && (
+          <div className="px-4 py-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-xl text-sm text-blue-900 dark:text-blue-100">
+            {disabledMessage}
+          </div>
+        )}
+
         {/* Upload Loading State */}
-        {allowAttachments && isUploading && (
+        {allowAttachments && isUploading && !disabled && (
           <div className="flex items-center gap-2 px-2 py-1 text-sm text-black/60 dark:text-white/60">
             <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />
             <span>Uploading files...</span>
@@ -171,7 +181,7 @@ export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments =
         )}
 
         {/* Upload Error */}
-        {allowAttachments && uploadError && (
+        {allowAttachments && uploadError && !disabled && (
           <div className="px-2 py-1 text-sm text-red-600 dark:text-red-400">
             {uploadError}
           </div>
@@ -192,7 +202,7 @@ export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments =
 
         {/* Input Area */}
         <div className="flex items-end gap-3">
-          {allowAttachments && mode === 'claim' && (
+          {allowAttachments && mode === 'claim' && !disabled && (
             <>
               <input
                 ref={fileInputRef}
@@ -233,8 +243,9 @@ export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments =
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`Ask about ${mode === 'policy' ? 'policies' : 'claims'}...`}
-              className="w-full resize-none bg-black/5 dark:bg-white/5 border-0 rounded-2xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-black/20 dark:focus:ring-white/20 min-h-12 max-h-50 text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-white/40"
+              placeholder={disabled ? 'This chat session is closed. Create a new chat to file another claim.' : `Ask about ${mode === 'policy' ? 'policies' : 'claims'}...`}
+              disabled={disabled}
+              className="w-full resize-none bg-black/5 dark:bg-white/5 border-0 rounded-2xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-black/20 dark:focus:ring-white/20 min-h-12 max-h-50 text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
               rows={1}
             />
             <div className="absolute right-2 bottom-2 flex items-center gap-1">
@@ -246,7 +257,7 @@ export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments =
 
           <Button
             onClick={handleSend}
-            disabled={!message.trim() && files.length === 0}
+            disabled={disabled || (!message.trim() && files.length === 0)}
             size="icon"
             className="shrink-0 h-11 w-11 rounded-xl"
           >
@@ -254,9 +265,11 @@ export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments =
           </Button>
         </div>
 
-          <p className="text-xs text-black/40 dark:text-white/40 text-center">
-            Press Enter to send, Shift + Enter for new line
-          </p>
+          {!disabled && (
+            <p className="text-xs text-black/40 dark:text-white/40 text-center">
+              Press Enter to send, Shift + Enter for new line
+            </p>
+          )}
         </div>
       </div>
     </>

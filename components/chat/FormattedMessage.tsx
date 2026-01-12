@@ -1,133 +1,77 @@
 'use client'
 
-import { Fragment } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface FormattedMessageProps {
   content: string
 }
 
 /**
- * Simple markdown formatter that converts markdown syntax to formatted text
- * Handles: **bold**, *italic*, lists, line breaks
+ * Markdown formatter using react-markdown with Tailwind styling
+ * Handles: **bold**, *italic*, lists, code blocks, links, etc.
  */
 export function FormattedMessage({ content }: FormattedMessageProps) {
-  // Split by double newlines to handle paragraphs
-  const paragraphs = content.split(/\n\n+/)
-
   return (
-    <>
-      {paragraphs.map((paragraph, pIndex) => {
-        // Skip empty paragraphs
-        if (!paragraph.trim()) return null
-
-        // Check if it's a list item (starts with - or *)
-        if (/^[-*]\s/.test(paragraph.trim())) {
-          const items = paragraph.split(/\n(?=[-*]\s)/)
-          return (
-            <ul key={pIndex} className="list-disc list-inside space-y-1 my-2 ml-2">
-              {items.map((item, iIndex) => {
-                const cleanItem = item.replace(/^[-*]\s+/, '')
-                return (
-                  <li key={iIndex} className="text-sm">
-                    <FormattedText text={cleanItem} />
-                  </li>
-                )
-              })}
-            </ul>
-          )
-        }
-
-        // Regular paragraph
-        return (
-          <p key={pIndex} className="mb-2 last:mb-0">
-            <FormattedText text={paragraph} />
-          </p>
-        )
-      })}
-    </>
-  )
-}
-
-/**
- * Formats inline markdown (bold, italic) within text
- */
-function FormattedText({ text }: { text: string }) {
-  const parts: Array<{ type: 'text' | 'bold' | 'italic'; content: string }> = []
-  let remaining = text
-  let key = 0
-
-  // Process bold (**text**)
-  while (remaining.length > 0) {
-    const boldMatch = remaining.match(/\*\*([^*]+)\*\*/)
-    const italicMatch = remaining.match(/\*([^*]+)\*/)
-
-    if (boldMatch && (!italicMatch || boldMatch.index! < italicMatch.index!)) {
-      // Add text before bold
-      if (boldMatch.index! > 0) {
-        parts.push({
-          type: 'text',
-          content: remaining.substring(0, boldMatch.index!),
-        })
-      }
-      // Add bold text
-      parts.push({
-        type: 'bold',
-        content: boldMatch[1],
-      })
-      remaining = remaining.substring(boldMatch.index! + boldMatch[0].length)
-    } else if (italicMatch) {
-      // Add text before italic
-      if (italicMatch.index! > 0) {
-        parts.push({
-          type: 'text',
-          content: remaining.substring(0, italicMatch.index!),
-        })
-      }
-      // Add italic text
-      parts.push({
-        type: 'italic',
-        content: italicMatch[1],
-      })
-      remaining = remaining.substring(italicMatch.index! + italicMatch[0].length)
-    } else {
-      // No more formatting, add remaining text
-      parts.push({
-        type: 'text',
-        content: remaining,
-      })
-      break
-    }
-  }
-
-  return (
-    <>
-      {parts.map((part, index) => {
-        if (part.type === 'bold') {
-          return (
-            <strong key={index} className="font-semibold">
-              {part.content}
-            </strong>
-          )
-        }
-        if (part.type === 'italic') {
-          return (
-            <em key={index} className="italic">
-              {part.content}
-            </em>
-          )
-        }
-        // Handle line breaks in text
-        return (
-          <Fragment key={index}>
-            {part.content.split('\n').map((line, lineIndex, array) => (
-              <Fragment key={lineIndex}>
-                {line}
-                {lineIndex < array.length - 1 && <br />}
-              </Fragment>
-            ))}
-          </Fragment>
-        )
-      })}
-    </>
+    <div className="markdown-content">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Customize paragraph styling
+          p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+          // Customize list styling
+          ul: ({ children }) => <ul className="list-disc list-inside space-y-1 my-2 ml-4">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 my-2 ml-6">{children}</ol>,
+          li: ({ children }) => <li className="text-sm leading-relaxed">{children}</li>,
+          // Customize heading styling
+          h1: ({ children }) => <h1 className="text-lg font-semibold mb-2 mt-3 text-black dark:text-white">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-base font-semibold mb-2 mt-3 text-black dark:text-white">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 text-black dark:text-white">{children}</h3>,
+          // Customize code blocks
+          code: ({ className, children, ...props }) => {
+            const isInline = !className
+            return isInline ? (
+              <code className="text-sm bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded font-mono" {...props}>
+                {children}
+              </code>
+            ) : (
+              <code className="block text-sm bg-black/5 dark:bg-white/5 p-3 rounded-lg border border-black/10 dark:border-white/10 overflow-x-auto my-2" {...props}>
+                {children}
+              </code>
+            )
+          },
+          pre: ({ children }) => (
+            <pre className="bg-black/5 dark:bg-white/5 p-3 rounded-lg border border-black/10 dark:border-white/10 overflow-x-auto my-2">
+              {children}
+            </pre>
+          ),
+          // Customize links
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+            >
+              {children}
+            </a>
+          ),
+          // Customize strong/bold
+          strong: ({ children }) => <strong className="font-semibold text-black dark:text-white">{children}</strong>,
+          // Customize emphasis/italic
+          em: ({ children }) => <em className="italic">{children}</em>,
+          // Customize blockquote
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-4 border-black/20 dark:border-white/20 pl-4 my-2 italic text-black/80 dark:text-white/80">
+              {children}
+            </blockquote>
+          ),
+          // Customize horizontal rule
+          hr: () => <hr className="my-4 border-black/10 dark:border-white/10" />,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   )
 }

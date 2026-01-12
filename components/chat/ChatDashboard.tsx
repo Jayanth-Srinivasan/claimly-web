@@ -185,7 +185,14 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
 
         // Upload successful - store uploaded file metadata
         setUploadedFiles((prev) => [...prev, ...result.files!])
+        // Store both path and URL - path for database, but we can also use URL for preview
         fileIds = result.files.map((f) => f.path)
+        
+        // Store file URLs in a map for quick access (optional optimization)
+        result.files.forEach((file) => {
+          // Store URL temporarily if needed
+          sessionStorage.setItem(`file_url_${file.path}`, file.url)
+        })
         toast.success(`${result.files.length} file(s) uploaded successfully!`)
 
         setIsUploading(false)
@@ -235,6 +242,18 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
 
         if (result.success && result.message) {
           setMessages((prev) => [...prev, result.message!])
+          
+          // Reload session to check if claim was created (session might be archived now)
+          if (currentSessionId && mode === 'claim') {
+            try {
+              const sessionResult = await loadChatSessionAction(currentSessionId)
+              if (sessionResult.success && sessionResult.session) {
+                setCurrentSession(sessionResult.session)
+              }
+            } catch (error) {
+              console.error('Error reloading session:', error)
+            }
+          }
         } else {
           toast.error(result.error || 'Failed to get AI response')
         }
@@ -336,6 +355,10 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
           mode={mode}
           onSendMessage={handleSendMessage}
           isUploading={isUploading}
+          disabled={mode === 'claim' && currentSession?.is_archived === true}
+          disabledMessage={mode === 'claim' && currentSession?.is_archived === true 
+            ? "This claim has been successfully filed. This chat session is now closed. To file another claim, please create a new chat session."
+            : undefined}
         />
 
         {/* Floating Files Button - Top Left (after sidebar toggle) */}
