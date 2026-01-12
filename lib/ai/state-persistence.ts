@@ -6,12 +6,20 @@ import type { QuestioningState, ConversationTurn } from '@/types/adaptive-questi
  * Solves the critical issue where state was lost between requests.
  */
 export class StatePersistenceService {
+  private disabled = false
+
   constructor(private supabase: SupabaseClient) {}
+
+  private isMissingTable(error: any) {
+    return error?.code === 'PGRST205' && /claim_questioning_state/i.test(error?.message || '')
+  }
 
   /**
    * Load persisted questioning state from database
    */
   async loadState(claimId: string): Promise<Partial<QuestioningState> | null> {
+    if (this.disabled) return null
+
     const { data, error } = await this.supabase
       .from('claim_questioning_state')
       .select('*')
@@ -19,6 +27,11 @@ export class StatePersistenceService {
       .single()
 
     if (error) {
+      if (this.isMissingTable(error)) {
+        console.warn('[StatePersistence] Table missing; disabling persistence for this session.')
+        this.disabled = true
+        return null
+      }
       // No state found yet - this is normal for new claims
       if (error.code === 'PGRST116') {
         return null
@@ -40,6 +53,8 @@ export class StatePersistenceService {
    * Save complete questioning state to database
    */
   async saveState(claimId: string, state: QuestioningState): Promise<void> {
+    if (this.disabled) return
+
     const { error } = await this.supabase
       .from('claim_questioning_state')
       .upsert({
@@ -51,8 +66,12 @@ export class StatePersistenceService {
       })
 
     if (error) {
+      if (this.isMissingTable(error)) {
+        console.warn('[StatePersistence] Table missing; disabling persistence for this session.')
+        this.disabled = true
+        return
+      }
       console.error('[StatePersistence] Error saving state:', error)
-      throw error
     }
   }
 
@@ -60,6 +79,8 @@ export class StatePersistenceService {
    * Update only the asked questions list (more efficient than full save)
    */
   async updateAskedQuestions(claimId: string, questionIds: string[]): Promise<void> {
+    if (this.disabled) return
+
     // First, get existing asked questions
     const { data: existing } = await this.supabase
       .from('claim_questioning_state')
@@ -80,6 +101,11 @@ export class StatePersistenceService {
       })
 
     if (error) {
+      if (this.isMissingTable(error)) {
+        console.warn('[StatePersistence] Table missing; disabling persistence for this session.')
+        this.disabled = true
+        return
+      }
       console.error('[StatePersistence] Error updating asked questions:', error)
     }
   }
@@ -92,6 +118,8 @@ export class StatePersistenceService {
     role: 'user' | 'assistant',
     content: string
   ): Promise<void> {
+    if (this.disabled) return
+
     // Get existing conversation history
     const { data: existing } = await this.supabase
       .from('claim_questioning_state')
@@ -120,6 +148,11 @@ export class StatePersistenceService {
       })
 
     if (error) {
+      if (this.isMissingTable(error)) {
+        console.warn('[StatePersistence] Table missing; disabling persistence for this session.')
+        this.disabled = true
+        return
+      }
       console.error('[StatePersistence] Error adding conversation turn:', error)
     }
   }
@@ -128,6 +161,8 @@ export class StatePersistenceService {
    * Update the current focus field
    */
   async updateCurrentFocus(claimId: string, focus: string | undefined): Promise<void> {
+    if (this.disabled) return
+
     const { error } = await this.supabase
       .from('claim_questioning_state')
       .upsert({
@@ -137,6 +172,11 @@ export class StatePersistenceService {
       })
 
     if (error) {
+      if (this.isMissingTable(error)) {
+        console.warn('[StatePersistence] Table missing; disabling persistence for this session.')
+        this.disabled = true
+        return
+      }
       console.error('[StatePersistence] Error updating current focus:', error)
     }
   }
@@ -145,12 +185,19 @@ export class StatePersistenceService {
    * Clear state for a claim (useful for testing or resetting)
    */
   async clearState(claimId: string): Promise<void> {
+    if (this.disabled) return
+
     const { error } = await this.supabase
       .from('claim_questioning_state')
       .delete()
       .eq('claim_id', claimId)
 
     if (error) {
+      if (this.isMissingTable(error)) {
+        console.warn('[StatePersistence] Table missing; disabling persistence for this session.')
+        this.disabled = true
+        return
+      }
       console.error('[StatePersistence] Error clearing state:', error)
     }
   }
