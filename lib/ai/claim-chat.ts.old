@@ -1,6 +1,8 @@
-import OpenAI from 'openai'
 import { SupabaseClient } from '@supabase/supabase-js'
-import { getOpenAIClient, AI_MODELS } from './openai'
+import { createOpenAI } from '@ai-sdk/openai'
+import { generateObject } from 'ai'
+import { z } from 'zod'
+import { AI_MODELS } from './openai'
 import { RuleEvaluator } from '@/lib/rules/evaluator'
 import { AdaptiveQuestioningEngine } from './adaptive-questioning'
 import type { QuestioningState } from '@/types/adaptive-questions'
@@ -16,21 +18,29 @@ interface ClaimContext {
 }
 
 export class ClaimChatService {
-  private openai: OpenAI
   private supabase: SupabaseClient
   private userId: string
   private ruleEvaluator: RuleEvaluator
   private questioningEngine: AdaptiveQuestioningEngine
   private questioningStates: Map<string, QuestioningState> = new Map()
   private statePersistence: StatePersistenceService
+  private chatModel
 
   constructor(supabase: SupabaseClient, userId: string) {
-    this.openai = getOpenAIClient()
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY not configured')
+    }
+
+    const openai = createOpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+
     this.supabase = supabase
     this.userId = userId
     this.ruleEvaluator = new RuleEvaluator(supabase)
     this.questioningEngine = new AdaptiveQuestioningEngine(supabase)
     this.statePersistence = new StatePersistenceService(supabase)
+    this.chatModel = openai(AI_MODELS.GPT4O)
   }
 
   async* streamMessage(input: {
@@ -120,9 +130,17 @@ export class ClaimChatService {
       }
     }
 
-    // Use AI to categorize incident
-    const completion = await this.openai.chat.completions.create({
-      model: AI_MODELS.GPT4O,
+    // Use ai-sdk to categorize incident
+    const categorizationSchema = z.object({
+      coverage_type_ids: z.array(z.string()).min(1),
+      reasoning: z.string().optional(),
+      confidence: z.enum(['high', 'medium', 'low']).default('medium'),
+    })
+
+    const { object: categorization } = await generateObject({
+      model: this.chatModel,
+      schema: categorizationSchema,
+      mode: 'json',
       messages: [
         {
           role: 'system',
@@ -131,17 +149,14 @@ export class ClaimChatService {
 Available coverage types:
 ${JSON.stringify(coverageTypesArray, null, 2)}
 
-Return a JSON object with:
+Return only a JSON object with:
 - coverage_type_ids: array of matching coverage type IDs
 - reasoning: brief explanation of why these coverage types match
 - confidence: high/medium/low`,
         },
         { role: 'user', content: description },
       ],
-      response_format: { type: 'json_object' },
     })
-
-    const categorization = JSON.parse(completion.choices[0].message.content!)
 
     if (!categorization.coverage_type_ids || categorization.coverage_type_ids.length === 0) {
       yield "I couldn't find a matching coverage type for your incident. Please contact support for assistance."
@@ -679,23 +694,23 @@ Return a JSON object with:
 
     if (!estimatedAmount && incidentDescription) {
       // AI-based rough estimate to catch obvious limit breaches
-      const completion = await this.openai.chat.completions.create({
-        model: AI_MODELS.GPT4O,
-        temperature: 0.1,
-        response_format: { type: 'json_object' },
+      const { object: estimation } = await generateObject({
+        model: this.chatModel,
+        schema: z.object({
+          amount: z.number(),
+        }),
         messages: [
           {
             role: 'system',
             content:
-              'Return ONLY a json object with {"amount": number}. Estimate the claimed monetary amount in USD from the incident description. If unsure, give a conservative high-end estimate. Do not return prose.',
+              'Return ONLY a JSON object with {"amount": number}. Estimate the claimed monetary amount in USD from the incident description. If unsure, give a conservative high-end estimate. Do not return prose.',
           },
           { role: 'user', content: incidentDescription },
         ],
       })
 
-      const parsed = JSON.parse(completion.choices[0].message.content || '{}')
-      if (typeof parsed.amount === 'number' && !Number.isNaN(parsed.amount)) {
-        estimatedAmount = parsed.amount
+      if (typeof estimation?.amount === 'number' && !Number.isNaN(estimation.amount)) {
+        estimatedAmount = estimation.amount
       }
     }
 
