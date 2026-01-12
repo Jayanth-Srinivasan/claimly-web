@@ -18,7 +18,7 @@ interface Claim {
   customerName: string
   customerEmail: string
   type: 'travel' | 'medical' | 'baggage' | 'flight'
-  status: 'pending' | 'approved' | 'rejected' | 'under-review'
+  status: 'draft' | 'pending' | 'under_review' | 'approved' | 'rejected' | 'paid'
   amount: number
   currency: string
   submittedAt: Date

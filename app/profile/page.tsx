@@ -37,5 +37,5 @@ export default async function ProfileRoute() {
   // Fetch user policies
   const userPolicies = await getUserPoliciesWithDetails(user.id)
 
-  return <ProfilePage profile={profile} userPolicies={userPolicies} />
+  return <ProfilePage profile={profile as any} userPolicies={userPolicies} />
 }

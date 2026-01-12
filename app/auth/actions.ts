@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { insertOne } from "@/lib/supabase/helpers"
-import type { Database } from "@/types/database"
+import type { Database } from "@/lib/supabase/database.types"
 import type { AuthResult } from "@/types/auth"
 
 export async function signIn({

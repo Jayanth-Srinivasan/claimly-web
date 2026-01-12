@@ -1,0 +1,774 @@
+import OpenAI from 'openai'
+import { SupabaseClient } from '@supabase/supabase-js'
+import { getOpenAIClient, AI_MODELS } from './openai'
+import { RuleEvaluator } from '@/lib/rules/evaluator'
+import { AdaptiveQuestioningEngine } from './adaptive-questioning'
+import type { QuestioningState } from '@/types/adaptive-questions'
+import { StatePersistenceService } from './state-persistence'
+
+interface ClaimContext {
+  claim_id?: string
+  coverage_type_ids: string[]
+  questions: any[]
+  answers: any[]
+  user_policies: any[]
+  incident_description?: string
+}
+
+export class ClaimChatService {
+  private openai: OpenAI
+  private supabase: SupabaseClient
+  private userId: string
+  private ruleEvaluator: RuleEvaluator
+  private questioningEngine: AdaptiveQuestioningEngine
+  private questioningStates: Map<string, QuestioningState> = new Map()
+  private statePersistence: StatePersistenceService
+
+  constructor(supabase: SupabaseClient, userId: string) {
+    this.openai = getOpenAIClient()
+    this.supabase = supabase
+    this.userId = userId
+    this.ruleEvaluator = new RuleEvaluator(supabase)
+    this.questioningEngine = new AdaptiveQuestioningEngine(supabase)
+    this.statePersistence = new StatePersistenceService(supabase)
+  }
+
+  async* streamMessage(input: {
+    message: string
+    sessionId: string
+    questionId?: string
+    answerValue?: any
+    questioningState?: Partial<QuestioningState> // Client state from Zustand
+  }) {
+    const context = await this.getClaimContext(input.sessionId)
+
+    // If answer provided, save it first
+    if (input.questionId && input.answerValue !== undefined && context.claim_id) {
+      await this.saveAnswer(context.claim_id, input.questionId, input.answerValue)
+      // Refresh context with new answer
+      context.answers = await this.getAnswers(context.claim_id)
+    }
+
+    if (!context.coverage_type_ids || context.coverage_type_ids.length === 0) {
+      // Stage 1: Categorization
+      yield* this.categorizeIncident(input.message, input.sessionId)
+    } else {
+      // Stage 2: Adaptive questioning (DB questions first, then adaptive fill gaps)
+      yield* this.handleAdaptiveQuestioning(context, input)
+    }
+  }
+
+  private async* categorizeIncident(description: string, sessionId: string) {
+    // Get user's active policies
+    const { data: userPolicies, error: policiesError } = await this.supabase
+      .from('user_policies')
+      .select(`
+        *,
+        policy:policies(
+          *,
+          policy_coverage_types(
+            coverage_type:coverage_types(*)
+          )
+        )
+      `)
+      .eq('user_id', this.userId)
+      .eq('is_active', true)
+
+    console.log('User ID:', this.userId)
+    console.log('User Policies:', JSON.stringify(userPolicies, null, 2))
+    console.log('Policies Error:', policiesError)
+
+    // Get all coverage types from user's policies
+    const availableCoverageTypes = new Set<string>()
+    userPolicies?.forEach((up) => {
+      up.policy?.policy_coverage_types?.forEach((pct: any) => {
+        if (pct.coverage_type) {
+          availableCoverageTypes.add(
+            JSON.stringify({
+              id: pct.coverage_type.id,
+              name: pct.coverage_type.name,
+              description: pct.coverage_type.description,
+            })
+          )
+        }
+      })
+    })
+
+    let coverageTypesArray = Array.from(availableCoverageTypes).map((ct) => JSON.parse(ct))
+
+    console.log('Coverage Types from Policies:', JSON.stringify(coverageTypesArray, null, 2))
+
+    // Fallback: If no coverage types found from user policies, get all available coverage types
+    if (coverageTypesArray.length === 0) {
+      console.log('No coverage types from policies, fetching all coverage types for testing...')
+
+      const { data: allCoverageTypes } = await this.supabase
+        .from('coverage_types')
+        .select('*')
+        .eq('is_active', true)
+
+      if (allCoverageTypes && allCoverageTypes.length > 0) {
+        coverageTypesArray = allCoverageTypes.map((ct) => ({
+          id: ct.id,
+          name: ct.name,
+          description: ct.description,
+        }))
+        console.log('Using all available coverage types:', JSON.stringify(coverageTypesArray, null, 2))
+      } else {
+        yield "I couldn't find any coverage types configured in the system. Please contact your administrator to set up coverage types first."
+        return
+      }
+    }
+
+    // Use AI to categorize incident
+    const completion = await this.openai.chat.completions.create({
+      model: AI_MODELS.GPT4O,
+      messages: [
+        {
+          role: 'system',
+          content: `You are an insurance claim assistant. Categorize the user's incident into the most appropriate coverage type(s) from their available policies.
+
+Available coverage types:
+${JSON.stringify(coverageTypesArray, null, 2)}
+
+Return a JSON object with:
+- coverage_type_ids: array of matching coverage type IDs
+- reasoning: brief explanation of why these coverage types match
+- confidence: high/medium/low`,
+        },
+        { role: 'user', content: description },
+      ],
+      response_format: { type: 'json_object' },
+    })
+
+    const categorization = JSON.parse(completion.choices[0].message.content!)
+
+    if (!categorization.coverage_type_ids || categorization.coverage_type_ids.length === 0) {
+      yield "I couldn't find a matching coverage type for your incident. Please contact support for assistance."
+      return
+    }
+
+    // Generate claim number (simple format: CLM-TIMESTAMP-RANDOM)
+    const claimNumber = `CLM-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
+
+    // Create claim record with all required fields
+    const { data: claim, error: claimError } = await this.supabase
+      .from('claims')
+      .insert({
+        user_id: this.userId,
+        chat_session_id: sessionId,
+        claim_number: claimNumber,
+        incident_description: description,
+        incident_date: new Date().toISOString(), // Default to today, can be updated later
+        incident_location: 'Not specified', // Will be collected via questionnaire
+        incident_type: categorization.coverage_type_ids[0] || 'general',
+        coverage_type_ids: categorization.coverage_type_ids,
+        status: 'draft',
+        currency: 'USD',
+        total_claimed_amount: 0,
+      })
+      .select()
+      .single()
+
+    console.log('Claim creation result:', { claim, claimError })
+
+    if (claimError || !claim) {
+      console.error('Failed to create claim:', claimError)
+      yield `Failed to create claim: ${claimError?.message || 'Unknown error'}. Please try again.`
+      return
+    }
+
+    // Link coverage types to claim (if you have a junction table)
+    // For now, we'll store in claim metadata or handle differently
+
+    const coverageTypeName = coverageTypesArray.find(
+      (ct) => ct.id === categorization.coverage_type_ids[0]
+    )?.name
+
+    yield `I can help you file a ${coverageTypeName || 'claim'}. Let me ask you a few questions to process your claim.\n\n`
+
+    // Start questioning
+    const nextContext = await this.getClaimContext(sessionId)
+    yield* this.handleAdaptiveQuestioning(nextContext, { message: '' })
+  }
+
+  private async* handleAdaptiveQuestioning(
+    context: ClaimContext,
+    input: { message: string; questionId?: string; answerValue?: any; questioningState?: Partial<QuestioningState> }
+  ) {
+    // Get or initialize questioning state
+    let state = this.questioningStates.get(context.claim_id!)
+
+    if (!state) {
+      try {
+        // Load persisted state from DB and optionally merge with client (validated)
+        const persistedState = await this.statePersistence.loadState(context.claim_id!)
+        const clientState = this.validateClientState(input.questioningState)
+        const mergedState = this.mergeStates(persistedState, clientState)
+
+        state = await this.questioningEngine.initialize(
+          context.claim_id!,
+          context.coverage_type_ids,
+          mergedState || undefined
+        )
+        this.questioningStates.set(context.claim_id!, state)
+
+        console.log('[ClaimChat] Loaded state from client:', {
+          asked_questions: state.database_questions_asked.length,
+          conversation_turns: state.conversation_history.length
+        })
+      } catch (error) {
+        console.error('[ClaimChat] Failed to initialize adaptive questioning:', error)
+        yield "I encountered an error setting up your claim questions. Please contact support."
+        return
+      }
+    }
+
+    // SAFETY: Check if requirements were found
+    if (!state.coverage_type_ids || state.coverage_type_ids.length === 0) {
+      console.error('[ClaimChat] No valid coverage types in state')
+      yield "I'm having trouble determining the type of claim. Please try describing your incident again."
+      return
+    }
+
+    // ALWAYS extract information from user's message (works during both DB and adaptive questions)
+    if (input.message && input.message.trim() !== '') {
+      const { extracted, updatedState } = await this.questioningEngine.processUserMessage(
+        state,
+        input.message
+      )
+
+      state = updatedState
+      this.questioningStates.set(context.claim_id!, state)
+      await this.statePersistence.addConversationTurn(context.claim_id!, 'user', input.message)
+      await this.statePersistence.saveState(context.claim_id!, state)
+
+      // Log extracted fields (for debugging)
+      if (extracted.length > 0) {
+        const fields = extracted.map(e => `${e.field}=${e.value}`).join(', ')
+        console.log(`[Adaptive] Extracted: ${fields}`)
+      }
+    }
+
+    // Handle database question answers (if provided)
+    if (input.questionId && input.answerValue !== undefined && context.claim_id) {
+      await this.saveAnswer(context.claim_id, input.questionId, input.answerValue)
+      state.database_questions_asked.push(input.questionId)
+
+      this.questioningStates.set(context.claim_id!, state)
+      await this.statePersistence.updateAskedQuestions(context.claim_id!, state.database_questions_asked)
+      await this.statePersistence.saveState(context.claim_id!, state)
+      // refresh answers in context
+      context.answers = await this.getAnswers(context.claim_id!)
+    }
+
+    // Re-evaluate rules after any new info
+    const ruleResults = await this.ruleEvaluator.evaluate({
+      coverage_type_ids: context.coverage_type_ids,
+      answers: context.answers || [],
+    })
+
+    if (ruleResults.eligibility_status === 'ineligible') {
+      const msg =
+        ruleResults.validation_errors[0]?.message ||
+        'Based on your answers, this claim is currently ineligible.'
+      yield msg
+
+      this.questioningStates.set(context.claim_id!, state)
+      await this.statePersistence.saveState(context.claim_id!, state)
+      return
+    }
+
+    // PRIORITY 1: Check for database questions FIRST (respect hidden)
+    const dbQuestions = await this.getDatabaseQuestions(context.coverage_type_ids)
+    const unansweredDbQuestions = dbQuestions.filter(
+      q => !state.database_questions_asked.includes(q.id) && !ruleResults.hidden_questions.includes(q.id)
+    )
+
+    if (unansweredDbQuestions.length > 0) {
+      // Database questions have priority - ask them first
+      const nextDbQuestion = unansweredDbQuestions[0]
+      yield `**${nextDbQuestion.question_text}**`
+      if (nextDbQuestion.help_text) {
+        yield `\n\n_${nextDbQuestion.help_text}_`
+      }
+
+      // Persist asked question to avoid repeats across sessions
+      await this.statePersistence.updateAskedQuestions(context.claim_id!, [...state.database_questions_asked, nextDbQuestion.id])
+      return
+    }
+
+    // PRIORITY 2: Check documents if required
+    if (ruleResults.required_documents.length > 0) {
+      const documentCheckResult = await this.checkDocuments(context.claim_id!, ruleResults.required_documents)
+
+      if (documentCheckResult.needsDocuments) {
+        yield* documentCheckResult.message
+
+        return
+      }
+
+      // If documents are valid, extract information
+      if (documentCheckResult.documents && documentCheckResult.documents.length > 0) {
+        await this.extractDataFromDocuments(context.claim_id!, documentCheckResult.documents)
+      }
+    }
+
+    // PRIORITY 3: Check if all required adaptive information collected
+    if (state.missing_required_fields.length === 0) {
+      // Final policy limit validation before marking ready
+      const limitCheck = await this.validatePolicyLimits({
+        coverageTypeIds: context.coverage_type_ids,
+        incidentDescription: context.incident_description,
+        claimId: context.claim_id!
+      })
+
+      if (!limitCheck.valid && limitCheck.message) {
+        yield limitCheck.message + '\n\n'
+      }
+
+      yield "Great! I have all the information I need for your claim. "
+      if (ruleResults.required_documents.length > 0 && ruleResults.required_documents.length > 0) {
+        // Already checked documents above
+        yield "Your claim is ready for submission!"
+      } else {
+        yield "Please upload any supporting documents you have (booking confirmations, receipts, etc.)."
+      }
+
+      // Persist final state
+      await this.statePersistence.saveState(context.claim_id!, state)
+      return
+    }
+
+    // PRIORITY 4: Ask adaptive questions to fill remaining gaps (single pass)
+    let aiReply = ''
+    for await (const chunk of this.questioningEngine.generateNextQuestion(state, {
+      incidentDescription: context.incident_description
+    })) {
+      aiReply += chunk
+      yield chunk
+    }
+
+    if (aiReply.trim().length > 0) {
+      state.conversation_history.push({
+        role: 'assistant',
+        content: aiReply
+      })
+      await this.statePersistence.addConversationTurn(context.claim_id!, 'assistant', aiReply)
+    }
+
+    // Update in-memory state
+    this.questioningStates.set(context.claim_id!, state)
+    await this.statePersistence.saveState(context.claim_id!, state)
+  }
+
+  private async getDatabaseQuestions(coverageTypeIds: string[]) {
+    const { data: questions } = await this.supabase
+      .from('questions')
+      .select('*')
+      .in('coverage_type_id', coverageTypeIds)
+      .eq('is_active', true)
+      .order('order_index', { ascending: true })
+
+    return questions || []
+  }
+
+  private async getClaimContext(sessionId: string): Promise<ClaimContext> {
+    // Get claim associated with this session
+    const { data: claim } = await this.supabase
+      .from('claims')
+      .select('*')
+      .eq('chat_session_id', sessionId)
+      .single()
+
+    if (!claim) {
+      return {
+        coverage_type_ids: [],
+        questions: [],
+        answers: [],
+        user_policies: [],
+      }
+    }
+
+    // Get coverage type IDs directly from the claim
+    const coverage_type_ids = claim.coverage_type_ids || []
+
+    // Get questions for these coverage types (for database questions)
+    const { data: questions } = await this.supabase
+      .from('questions')
+      .select('*')
+      .in('coverage_type_id', coverage_type_ids)
+      .eq('is_active', true)
+      .order('order_index', { ascending: true })
+
+    // Get answers for this claim
+    const answers = await this.getAnswers(claim.id)
+
+    console.log('[ClaimContext] Claim coverage_type_ids:', coverage_type_ids)
+    console.log('[ClaimContext] Found questions:', questions?.length || 0)
+
+    return {
+      claim_id: claim.id,
+      coverage_type_ids,
+      questions: questions || [],
+      answers,
+      user_policies: [],
+      incident_description: claim.incident_description
+    }
+  }
+
+  private async getAnswers(claimId: string) {
+    const { data: answers } = await this.supabase
+      .from('claim_answers')
+      .select('*')
+      .eq('claim_id', claimId)
+
+    return answers || []
+  }
+
+  private async saveAnswer(claimId: string, questionId: string, answerValue: any) {
+    // Determine answer type and save accordingly
+    const answerData: any = {
+      claim_id: claimId,
+      question_id: questionId,
+    }
+
+    if (typeof answerValue === 'number') {
+      answerData.answer_number = answerValue
+    } else if (answerValue instanceof Date || !isNaN(Date.parse(answerValue))) {
+      answerData.answer_date = answerValue
+    } else {
+      answerData.answer_text = String(answerValue)
+    }
+
+    await this.supabase.from('claim_answers').insert(answerData)
+  }
+
+  private async checkDocuments(claimId: string, requiredDocuments: string[]) {
+    // Get uploaded documents for this claim
+    const { data: documents } = await this.supabase
+      .from('claim_documents')
+      .select('*')
+      .eq('claim_id', claimId)
+
+    const uploadedDocTypes = new Set(
+      documents?.map(d => d.inferred_document_type?.toLowerCase()) || []
+    )
+
+    // Check for missing documents
+    const missingDocs = requiredDocuments.filter(
+      doc => !uploadedDocTypes.has(doc.toLowerCase())
+    )
+
+    if (missingDocs.length > 0) {
+      const message = async function* () {
+        yield 'I still need the following documents to process your claim:\n\n'
+        for (const doc of missingDocs) {
+          yield `- ${doc}\n`
+        }
+        yield '\nPlease upload these documents using the paperclip button below.'
+      }
+
+      return {
+        needsDocuments: true,
+        message: message(),
+        documents: null,
+      }
+    }
+
+    // Check for validation issues
+    const problematicDocs = documents?.filter(d =>
+      d.risk_flags && d.risk_flags.length > 0
+    ) || []
+
+    if (problematicDocs.length > 0) {
+      const message = async function* () {
+        yield 'I found some issues with your uploaded documents:\n\n'
+        for (const doc of problematicDocs) {
+          yield `**${doc.file_name}**:\n`
+          for (const flag of doc.risk_flags) {
+            yield `- ${flag}\n`
+          }
+        }
+        yield '\nPlease upload corrected or clearer documents.'
+      }
+
+      return {
+        needsDocuments: true,
+        message: message(),
+        documents: null,
+      }
+    }
+
+    // All documents validated successfully
+    return {
+      needsDocuments: false,
+      message: null,
+      documents: documents || [],
+    }
+  }
+
+  private async extractDataFromDocuments(claimId: string, documents: any[]) {
+    const autoFilledFields: Record<string, any> = {}
+
+    for (const doc of documents) {
+      if (!doc.ocr_data) continue
+
+      const ocrData = doc.ocr_data
+
+      // Extract entities from OCR data
+      if (ocrData.extracted_entities) {
+        // Extract dates to incident_date
+        if (ocrData.extracted_entities.dates && ocrData.extracted_entities.dates.length > 0) {
+          const incidentDate = ocrData.extracted_entities.dates.find(
+            (d: any) => d.context === 'incident_date' || d.context === 'transaction_date'
+          )
+          if (incidentDate) {
+            autoFilledFields['incident_date'] = incidentDate.value
+          }
+        }
+
+        // Extract locations to incident_location
+        if (ocrData.extracted_entities.locations && ocrData.extracted_entities.locations.length > 0) {
+          const location = ocrData.extracted_entities.locations.find(
+            (l: any) => l.context === 'incident_location'
+          )
+          if (location) {
+            autoFilledFields['incident_location'] = location.name
+          }
+        }
+
+        // Extract monetary amounts to total_claimed_amount
+        if (ocrData.extracted_entities.monetary_amounts && ocrData.extracted_entities.monetary_amounts.length > 0) {
+          const claimedAmount = ocrData.extracted_entities.monetary_amounts.find(
+            (a: any) => a.context === 'claimed_amount' || a.context === 'total'
+          )
+          if (claimedAmount) {
+            autoFilledFields['total_claimed_amount'] = claimedAmount.value
+          }
+        }
+      }
+
+      // Also extract from extracted_data
+      if (ocrData.extracted_data?.amounts && ocrData.extracted_data.amounts.length > 0) {
+        const total = ocrData.extracted_data.amounts.find(
+          (a: any) => a.label?.toLowerCase().includes('total')
+        )
+        if (total && !autoFilledFields['total_claimed_amount']) {
+          autoFilledFields['total_claimed_amount'] = total.value
+        }
+      }
+
+      // Update document with auto-filled fields tracking
+      await this.supabase
+        .from('claim_documents')
+        .update({ auto_filled_fields: autoFilledFields })
+        .eq('id', doc.id)
+    }
+
+    // Update claim with extracted information
+    if (Object.keys(autoFilledFields).length > 0) {
+      await this.supabase
+        .from('claims')
+        .update(autoFilledFields)
+        .eq('id', claimId)
+
+      console.log('[ClaimChat] Auto-filled fields from documents:', autoFilledFields)
+    }
+
+    // Save to claim_extracted_information table
+    for (const [fieldName, fieldValue] of Object.entries(autoFilledFields)) {
+      await this.supabase
+        .from('claim_extracted_information')
+        .insert({
+          claim_id: claimId,
+          field_name: fieldName,
+          field_value: fieldValue,
+          confidence: 'high',
+          source: 'ai_inference',
+        })
+    }
+  }
+
+  /**
+   * Validate and sanitize client-provided questioning state to prevent tampering
+   */
+  private validateClientState(state?: Partial<QuestioningState> | null): Partial<QuestioningState> | null {
+    if (!state || typeof state !== 'object') return null
+
+    const sanitizeTurns = (turns: any[]): QuestioningState['conversation_history'] =>
+      (Array.isArray(turns) ? turns : [])
+        .filter(t => t && typeof t.role === 'string' && typeof t.content === 'string')
+        .map(t => ({
+          role: t.role === 'assistant' ? 'assistant' : 'user',
+          content: String(t.content).slice(0, 2000)
+        }))
+
+    return {
+      conversation_history: sanitizeTurns(state.conversation_history || []),
+      database_questions_asked: Array.isArray(state.database_questions_asked)
+        ? Array.from(new Set(state.database_questions_asked.map(String)))
+        : [],
+      current_focus: state.current_focus ? String(state.current_focus).slice(0, 200) : undefined,
+    }
+  }
+
+  /**
+   * Merge persisted state with validated client-provided state.
+   * Server state remains the source of truth; client can only add turns/questions.
+   */
+  private mergeStates(
+    persisted?: Partial<QuestioningState> | null,
+    client?: Partial<QuestioningState> | null
+  ): Partial<QuestioningState> | null {
+    if (!persisted && !client) return null
+
+    const mergedQuestions = Array.from(
+      new Set([
+        ...(persisted?.database_questions_asked || []),
+        ...(client?.database_questions_asked || []),
+      ])
+    )
+
+    const mergedHistory = [
+      ...(persisted?.conversation_history || []),
+      ...(client?.conversation_history || []),
+    ]
+
+    return {
+      database_questions_asked: mergedQuestions,
+      conversation_history: mergedHistory,
+      current_focus: client?.current_focus || persisted?.current_focus,
+    }
+  }
+
+  /**
+   * Validate policy limits and deductibles before proceeding.
+   */
+  private async validatePolicyLimits(input: {
+    coverageTypeIds: string[]
+    incidentDescription?: string
+    claimId: string
+  }): Promise<{
+    valid: boolean
+    insufficientLimits: Array<{
+      coverageTypeId: string
+      coverageName: string
+      availableLimit: number | null
+      estimatedAmount: number
+      deductible?: number | null
+    }>
+    message?: string
+  }> {
+    const { coverageTypeIds, incidentDescription, claimId } = input
+
+    // Fetch claim amount if already captured
+    const { data: claim } = await this.supabase
+      .from('claims')
+      .select('total_claimed_amount')
+      .eq('id', claimId)
+      .single()
+
+    let estimatedAmount = typeof claim?.total_claimed_amount === 'number' ? claim.total_claimed_amount : 0
+
+    if (!estimatedAmount && incidentDescription) {
+      // AI-based rough estimate to catch obvious limit breaches
+      const completion = await this.openai.chat.completions.create({
+        model: AI_MODELS.GPT4O,
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Estimate the claimed monetary amount (numeric, USD) from the incident description. If unsure, return a conservative high-end estimate. Respond as {"amount": number}.',
+          },
+          { role: 'user', content: incidentDescription },
+        ],
+      })
+
+      const parsed = JSON.parse(completion.choices[0].message.content || '{}')
+      if (typeof parsed.amount === 'number' && !Number.isNaN(parsed.amount)) {
+        estimatedAmount = parsed.amount
+      }
+    }
+
+    // Fetch active user policies with coverage limits/deductibles
+    const { data: userPolicies } = await this.supabase
+      .from('user_policies')
+      .select(`
+        id,
+        policy_id,
+        coverage_items,
+        policy:policies(
+          policy_coverage_types(
+            coverage_limit,
+            deductible,
+            coverage_type:coverage_types(*)
+          )
+        )
+      `)
+      .eq('user_id', this.userId)
+      .eq('is_active', true)
+
+    const policies = (userPolicies as any[]) || []
+
+    const insufficientLimits: Array<{
+      coverageTypeId: string
+      coverageName: string
+      availableLimit: number | null
+      estimatedAmount: number
+      deductible?: number | null
+    }> = []
+
+    for (const coverageTypeId of coverageTypeIds) {
+      // Find a policy coverage type match
+      const match = policies.flatMap(up => up.policy?.policy_coverage_types || [])
+        .find((pct: any) => pct.coverage_type?.id === coverageTypeId)
+
+      if (!match) continue
+
+      const coverageName = match.coverage_type?.name || 'coverage'
+      const coverageLimit = typeof match.coverage_limit === 'number' ? match.coverage_limit : null
+      const deductible = typeof match.deductible === 'number' ? match.deductible : null
+
+      // Determine remaining limit using coverage_items (if present)
+      const parentPolicy = policies.find(up =>
+        (up.policy?.policy_coverage_types || []).some((pct: any) => pct.coverage_type?.id === coverageTypeId)
+      )
+      const coverageItems = (parentPolicy?.coverage_items as any[]) || []
+      const matchingItem = coverageItems.find(ci => ci?.name === coverageName)
+      const remainingFromItems =
+        typeof matchingItem?.total_limit === 'number' && typeof matchingItem?.used_limit === 'number'
+          ? matchingItem.total_limit - matchingItem.used_limit
+          : null
+
+      const availableLimit = remainingFromItems ?? coverageLimit
+      if (availableLimit !== null && estimatedAmount > availableLimit) {
+        insufficientLimits.push({
+          coverageTypeId,
+          coverageName,
+          availableLimit,
+          estimatedAmount,
+          deductible,
+        })
+      }
+    }
+
+    if (insufficientLimits.length === 0) {
+      return { valid: true, insufficientLimits: [], message: undefined }
+    }
+
+    const messageLines = insufficientLimits.map(l =>
+      `- ${l.coverageName}: estimated $${l.estimatedAmount.toLocaleString()} exceeds available limit${l.availableLimit !== null ? ` of $${l.availableLimit.toLocaleString()}` : ''}${l.deductible ? ` (deductible: $${l.deductible})` : ''}`
+    )
+
+    return {
+      valid: false,
+      insufficientLimits,
+      message:
+        "Heads up: your described incident may exceed your policy's coverage limits:\n" +
+        messageLines.join('\n'),
+    }
+  }
+}

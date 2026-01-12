@@ -81,16 +81,11 @@ export function ClaimChat({ messages, mode, onSendMessage }: ClaimChatProps) {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Filter messages based on mode
-  const filteredMessages = messages.filter((msg) =>
-    mode === 'claimant' ? msg.role !== 'ai' : msg.role === 'admin' || msg.role === 'ai'
-  )
-
   return (
     <div className="flex flex-col h-full">
       {/* Messages Area - Scrollable */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {filteredMessages.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <MessageCircle className="h-12 w-12 text-black/20 dark:text-white/20 mx-auto mb-3" />
@@ -103,7 +98,7 @@ export function ClaimChat({ messages, mode, onSendMessage }: ClaimChatProps) {
           </div>
         ) : (
           <>
-            {filteredMessages.map((message) => (
+            {messages.map((message) => (
               <ClaimChatMessage key={message.id} message={message} />
             ))}
             <div ref={scrollRef} />

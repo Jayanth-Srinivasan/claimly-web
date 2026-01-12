@@ -1,6 +1,6 @@
 import { createClient } from './server'
 import { insertOne, updateOne } from './helpers'
-import type { Database, Json } from '@/types/database'
+import type { Database, Json } from '@/lib/supabase/database.types'
 import type {
   Policy,
   PolicyInsert,
@@ -25,7 +25,7 @@ export async function getPolicies(): Promise<Policy[]> {
     throw new Error('Failed to fetch policies')
   }
 
-  return (data || []) as Policy[]
+  return (data || []) as unknown as Policy[]
 }
 
 /**
@@ -45,7 +45,7 @@ export async function getPolicy(id: string): Promise<Policy | null> {
     return null
   }
 
-  return data as Policy
+  return data as unknown as Policy
 }
 
 /**
@@ -253,7 +253,7 @@ export async function getPoliciesByCoverageType(coverageTypeId: string): Promise
     throw new Error('Failed to fetch policies')
   }
 
-  return (policies || []) as Policy[]
+  return (policies || []) as unknown as Policy[]
 }
 
 /**
@@ -306,12 +306,12 @@ export async function searchPolicies(query: string): Promise<Policy[]> {
           new Map(allPolicies.map((p: any) => [p.id, p])).values()
         )
 
-        return uniquePolicies as Policy[]
+        return uniquePolicies as unknown as Policy[]
       }
     }
   }
 
-  return (policies || []) as Policy[]
+  return (policies || []) as unknown as Policy[]
 }
 
 /**

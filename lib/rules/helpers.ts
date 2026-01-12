@@ -1,4 +1,4 @@
-import type { Json } from '@/types/database'
+import type { Json } from '@/lib/supabase/database.types'
 import type {
   RuleCondition,
   RuleAction,

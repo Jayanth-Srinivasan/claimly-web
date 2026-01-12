@@ -11,7 +11,7 @@ import { ModeSwitch } from './ModeSwitch'
 import { ModeSwitchDialog } from './ModeSwitchDialog'
 import { NewChatButton } from './NewChatButton'
 import { UploadedFilesDialog } from './UploadedFilesDialog'
-import { uploadFilesAction } from '@/app/upload/actions'
+import { sendChatMessage, submitClaim } from '@/lib/api/chat-api'
 import type { Profile } from '@/types/auth'
 import type { UploadedFile } from '@/lib/supabase/storage'
 import type { Message, ChatSession } from '@/types/chat'
@@ -27,12 +27,17 @@ import {
   loadChatSessionAction,
   addClaimMessageAction,
 } from '@/app/chat/actions'
+import { Button } from '@/components/ui/button'
+import { useQuestioningStore } from '@/lib/stores/questioning-store'
 
 interface ChatDashboardProps {
   profile: Profile
 }
 
 export function ChatDashboard({ profile }: ChatDashboardProps) {
+  // Zustand store for questioning state
+  const questioningStore = useQuestioningStore()
+
   // UI state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -50,6 +55,11 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
   const [pendingMode, setPendingMode] = useState<'policy' | 'claim' | null>(
     null
   )
+
+  // Claim submission state
+  const [claimReadyForSubmission, setClaimReadyForSubmission] = useState(false)
+  const [claimSubmitted, setClaimSubmitted] = useState(false)
+  const [claimNumber, setClaimNumber] = useState<string | null>(null)
 
   // Initialize session on mount
   useEffect(() => {
@@ -162,28 +172,75 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
 
     let fileIds: string[] = []
 
-    // If in claim mode and files are attached, upload them first
+    // Get questioning state from store for claim mode
+    const questioningState = mode === 'claim' && currentSession?.claim_id
+      ? questioningStore.getState(currentSession.claim_id)
+      : undefined
+
+    // If in claim mode and files are attached, upload them with OCR processing
     if (mode === 'claim' && files.length > 0) {
+      if (!currentSession?.claim_id) {
+        toast.error('No active claim. Please describe your incident first.')
+        return
+      }
+
       setIsUploading(true)
 
       try {
-        const formData = new FormData()
-        files.forEach((file) => {
-          formData.append('files', file)
-        })
+        for (const file of files) {
+          const formData = new FormData()
+          formData.append('file', file)
+          formData.append('claimId', currentSession.claim_id)
 
-        const result = await uploadFilesAction(formData)
+          const response = await fetch('/api/documents/upload', {
+            method: 'POST',
+            body: formData,
+          })
 
-        if (!result.success || !result.files) {
-          toast.error(result.error || 'Failed to upload files')
-          setIsUploading(false)
-          return
+          const result = await response.json()
+
+          if (result.success) {
+            // Document uploaded and processed successfully
+            const ocrResults = result.ocrResults
+
+            toast.success(`${file.name} processed: ${ocrResults.document_type}`)
+
+            // Add AI message about the document
+            const aiDocMessage: Message = {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: `I've received your ${ocrResults.document_type}. ${ocrResults.summary}${
+                ocrResults.authenticity_score
+                  ? `\n\nAuthenticity score: ${ocrResults.authenticity_score}/100`
+                  : ''
+              }`,
+              timestamp: new Date(),
+              analysis: ocrResults,
+            }
+            setMessages((prev) => [...prev, aiDocMessage])
+
+            // Show risk flags as warnings
+            if (result.riskFlags && result.riskFlags.length > 0) {
+              result.riskFlags.forEach((flag: string) => {
+                toast.warning(flag, { duration: 5000 })
+              })
+            }
+
+            fileIds.push(result.document.id)
+          } else {
+            // Upload failed
+            toast.error(`${file.name}: ${result.error || 'Upload failed'}`)
+
+            if (result.riskFlags && result.riskFlags.length > 0) {
+              result.riskFlags.forEach((flag: string) => {
+                toast.warning(flag, { duration: 5000 })
+              })
+            }
+
+            setIsUploading(false)
+            return
+          }
         }
-
-        // Upload successful - store uploaded file metadata
-        setUploadedFiles((prev) => [...prev, ...result.files!])
-        fileIds = result.files.map((f) => f.path)
-        toast.success(`${result.files.length} file(s) uploaded successfully!`)
 
         setIsUploading(false)
       } catch (error) {
@@ -203,41 +260,103 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
       attached_file_ids: fileIds.length > 0 ? fileIds : undefined,
     }
 
-    // Add to local state
+    // Add to local state immediately for instant UI feedback
     setMessages((prev) => [...prev, userMessage])
 
-    // Save to appropriate storage
-    if (mode === 'policy') {
-      addMessageToPolicyChat(currentSessionId, userMessage)
-    } else if (mode === 'claim') {
-      await addClaimMessageAction(
-        currentSessionId,
-        content,
-        'user',
-        fileIds.length > 0 ? fileIds : undefined
-      )
+    // Add user message to questioning store for claim mode
+    if (mode === 'claim' && currentSession?.claim_id) {
+      questioningStore.addConversationTurn(currentSession.claim_id, 'user', content)
     }
 
-    // Mock AI response after 1 second
-    setTimeout(async () => {
+    // Call backend API for BOTH modes
+    try {
+      const response = await sendChatMessage({
+        sessionId: currentSessionId,
+        message: content,
+        mode: mode,
+        attachedFileIds: fileIds,
+        claimId: currentSession?.claim_id || undefined,
+        questioningState: questioningState // Send questioning state to server
+      })
+
+      if (!response.success) {
+        toast.error(response.error || 'Failed to send message')
+        return
+      }
+
+      // Create AI response message
       const aiMessage: Message = {
-        id: crypto.randomUUID(),
+        id: response.data!.messageId,
         role: 'assistant',
-        content: `I understand you're asking about ${
-          mode === 'policy' ? 'insurance policies' : 'filing a claim'
-        }. How can I help you today?`,
+        content: response.data!.aiMessage,
         timestamp: new Date(),
+        analysis: response.data!.ruleValidation,
       }
 
       setMessages((prev) => [...prev, aiMessage])
 
-      // Save AI response
-      if (mode === 'policy') {
-        addMessageToPolicyChat(currentSessionId, aiMessage)
-      } else if (mode === 'claim') {
-        await addClaimMessageAction(currentSessionId, aiMessage.content, 'assistant')
+      // Add AI response to questioning store for claim mode
+      if (mode === 'claim' && currentSession?.claim_id) {
+        questioningStore.addConversationTurn(currentSession.claim_id, 'assistant', aiMessage.content)
+
+        // Update the full questioning state if returned from server
+        if (response.data!.updatedQuestioningState) {
+          questioningStore.updateState(currentSession.claim_id, response.data!.updatedQuestioningState)
+        }
       }
-    }, 1000)
+
+      // IMPORTANT: Save messages based on mode (only when AI responds)
+      if (mode === 'policy') {
+        // Save to localStorage for policy mode
+        addMessageToPolicyChat(currentSessionId, userMessage)
+        addMessageToPolicyChat(currentSessionId, aiMessage)
+      } else {
+        // Save to database for claim mode
+        await addClaimMessageAction(currentSessionId, content, 'user', fileIds.length > 0 ? fileIds : undefined)
+        await addClaimMessageAction(
+          currentSessionId,
+          aiMessage.content,
+          'assistant',
+          undefined
+        )
+
+        // Check if claim is ready for submission
+        if (response.data!.claimReadyForSubmission) {
+          setClaimReadyForSubmission(true)
+          toast.success('Your claim is ready for submission!')
+        }
+      }
+
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      toast.error('Failed to send message. Please try again.')
+    }
+  }
+
+  // Handle claim submission (only enabled after AI validates)
+  const handleSubmitClaim = async () => {
+    if (!currentSessionId || !claimReadyForSubmission || !currentSession?.claim_id) {
+      toast.error('Claim is not ready for submission')
+      return
+    }
+
+    try {
+      const result = await submitClaim({
+        sessionId: currentSessionId,
+        claimId: currentSession.claim_id
+      })
+
+      if (result.success && result.data) {
+        setClaimSubmitted(true)
+        setClaimNumber(result.data.claimNumber)
+        toast.success(`Claim ${result.data.claimNumber} submitted successfully!`)
+      } else {
+        toast.error(result.error || 'Failed to submit claim')
+      }
+    } catch (error) {
+      toast.error('Failed to submit claim')
+      console.error('Claim submission error:', error)
+    }
   }
 
   const handleSuggestedPrompt = (prompt: string) => {
@@ -295,7 +414,61 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
           mode={mode}
           onSendMessage={handleSendMessage}
           isUploading={isUploading}
+          disabled={claimSubmitted}
         />
+
+        {/* Submit Claim Button - Only shown in claim mode when ready */}
+        {mode === 'claim' && claimReadyForSubmission && !claimSubmitted && (
+          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50">
+            <Button
+              onClick={handleSubmitClaim}
+              size="lg"
+              className="shadow-lg bg-black dark:bg-white text-white dark:text-black hover:bg-black/90 dark:hover:bg-white/90"
+            >
+              Submit Claim
+            </Button>
+          </div>
+        )}
+
+        {/* Claim Submission Success Modal */}
+        {claimSubmitted && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-black p-8 rounded-xl shadow-2xl max-w-md w-full border border-black/10 dark:border-white/10">
+              <div className="text-center">
+                <div className="h-16 w-16 rounded-full bg-green-500/10 dark:bg-green-500/20 flex items-center justify-center mx-auto mb-4">
+                  <svg className="h-8 w-8 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-bold text-black dark:text-white mb-2">
+                  Claim Submitted!
+                </h2>
+                <p className="text-black/60 dark:text-white/60 mb-4">
+                  Your claim has been submitted successfully.
+                </p>
+                {claimNumber && (
+                  <div className="bg-black/5 dark:bg-white/5 rounded-lg p-4 mb-6">
+                    <p className="text-sm text-black/60 dark:text-white/60 mb-1">
+                      Claim Number
+                    </p>
+                    <p className="text-lg font-bold text-black dark:text-white">
+                      {claimNumber}
+                    </p>
+                  </div>
+                )}
+                <p className="text-sm text-black/60 dark:text-white/60 mb-6">
+                  We will review your claim and get back to you soon. You can track the status in your dashboard.
+                </p>
+                <Button
+                  onClick={() => window.location.href = '/chat'}
+                  className="w-full"
+                >
+                  Return to Dashboard
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Floating Files Button - Top Left (after sidebar toggle) */}
         {uploadedFiles.length > 0 && (

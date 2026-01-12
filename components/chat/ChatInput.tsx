@@ -1,22 +1,43 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import {
+  useState,
+  useRef,
+  useCallback,
+  type ComponentType,
+  type ForwardRefExoticComponent,
+  type RefAttributes
+} from 'react'
 import { Send, Paperclip, Camera } from 'lucide-react'
 import dynamic from 'next/dynamic'
+import type { WebcamProps } from 'react-webcam'
 import { Button } from '@/components/ui/button'
 import { FilePreview } from './FilePreview'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 // Dynamically import to avoid SSR issues
-const Webcam = dynamic(() => import('react-webcam'), { ssr: false })
+const Webcam = dynamic<WebcamProps>(
+  () =>
+    import('react-webcam').then(
+      (mod) =>
+        mod.default as unknown as ForwardRefExoticComponent<
+          WebcamProps & RefAttributes<any>
+        >
+    ),
+  { ssr: false }
+)
+const WebcamWithRef = Webcam as unknown as ForwardRefExoticComponent<
+  WebcamProps & RefAttributes<any>
+>
 
 interface ChatInputProps {
   mode: 'policy' | 'claim'
   onSendMessage: (content: string, files: File[]) => void
   isUploading?: boolean
+  disabled?: boolean
 }
 
-export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) {
+export function ChatInput({ mode, onSendMessage, isUploading, disabled }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [showCamera, setShowCamera] = useState(false)
@@ -123,7 +144,8 @@ export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) 
               <DialogTitle>Take a Photo</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <Webcam
+              {/* @ts-ignore react-webcam types require additional props but defaults handle them */}
+              <WebcamWithRef
                 ref={webcamRef}
                 audio={false}
                 screenshotFormat="image/jpeg"
@@ -150,7 +172,7 @@ export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) 
         </Dialog>
       )}
 
-      <div className="border-t border-black/10 dark:border-white/10 bg-white dark:bg-black">
+      <div className={`border-t border-black/10 dark:border-white/10 bg-white dark:bg-black ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
       <div className="max-w-4xl mx-auto p-4 space-y-3">
         {/* Upload Loading State */}
         {isUploading && (

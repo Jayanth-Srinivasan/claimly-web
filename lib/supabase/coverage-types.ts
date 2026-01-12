@@ -1,7 +1,7 @@
 import { createClient } from './server'
 import { insertOne, updateOne } from './helpers'
 import type { CoverageType, CoverageTypeInsert, CoverageTypeUpdate, CoverageTypeWithQuestions } from '@/types/policies'
-import type { Json } from '@/types/database'
+import type { Json } from '@/lib/supabase/database.types'
 import { getQuestionsByCoverageType } from './questions'
 
 /**

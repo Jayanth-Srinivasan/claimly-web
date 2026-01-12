@@ -1,4 +1,4 @@
-import type { Database } from '@/types/database'
+import type { Database } from '@/lib/supabase/database.types'
 import type { createClient as createServerClient } from './server'
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerClient>>
@@ -19,8 +19,8 @@ export async function insertOne<T extends TableName>(
   data: Database['public']['Tables'][T]['Insert']
 ): Promise<Database['public']['Tables'][T]['Row']> {
   // Type assertion needed due to Supabase TypeScript limitations with generic table operations
-  const { data: result, error } = await (supabase
-    .from(table)
+  const { data: result, error } = await ((supabase as any)
+    .from(table as string)
     .insert(data as never)
     .select()
     .single())
@@ -53,8 +53,8 @@ export async function updateOne<T extends TableName>(
   updates: Database['public']['Tables'][T]['Update']
 ): Promise<Database['public']['Tables'][T]['Row']> {
   // Type assertion needed due to Supabase TypeScript limitations with generic table operations
-  const { data: result, error } = await (supabase
-    .from(table)
+  const { data: result, error } = await ((supabase as any)
+    .from(table as string)
     .update(updates as never)
     .eq('id' as never, id)
     .select()
@@ -87,8 +87,8 @@ export async function updateMany<T extends TableName>(
   // Type assertion needed due to Supabase TypeScript limitations with generic table operations
   const results = await Promise.allSettled(
     updates.map(({ id, data }) =>
-      supabase
-        .from(table)
+      (supabase as any)
+        .from(table as string)
         .update(data as never)
         .eq('id' as never, id)
     )

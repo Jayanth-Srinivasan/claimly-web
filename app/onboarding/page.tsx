@@ -43,7 +43,7 @@ export default async function OnboardingPage() {
       console.error('Error fetching policies:', error)
     } else {
       // Cast database rows to Policy type
-      policies = (data || []).map((policy) => ({
+      policies = (data || []).map((policy: any) => ({
         ...policy,
         coverage_items: policy.coverage_items as any,
         exclusions: policy.exclusions || [],
@@ -53,5 +53,5 @@ export default async function OnboardingPage() {
     console.error('Error fetching policies:', error)
   }
 
-  return <OnboardingWizard profile={profile} policies={policies} />
+  return <OnboardingWizard profile={profile as any} policies={policies} />
 }

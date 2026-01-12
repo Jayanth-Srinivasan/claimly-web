@@ -21,6 +21,7 @@ export interface Message {
   reports?: any
   analysis?: any
   charts?: any
+  admin_only?: boolean
 }
 
 // LocalStorage chat session (policy mode only - not persisted to database)

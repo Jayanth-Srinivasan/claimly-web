@@ -7,7 +7,7 @@ import { updateOne } from "@/lib/supabase/helpers"
 import { enrollUserInPolicy } from "@/lib/supabase/user-policies"
 import { getPolicy } from "@/lib/supabase/policies"
 import type { AuthResult } from "@/types/auth"
-import type { Database } from "@/types/database"
+import type { Database } from "@/lib/supabase/database.types"
 import type { CoverageItem } from "@/types/user-policies"
 
 type ProfileUpdate = Database['public']['Tables']['profiles']['Update']

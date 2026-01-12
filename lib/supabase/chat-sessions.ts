@@ -1,6 +1,6 @@
 import { createClient } from './server'
 import { insertOne, updateOne } from './helpers'
-import type { Database } from '@/types/database'
+import type { Database } from '@/lib/supabase/database.types'
 import type {
   ChatSession,
   ChatSessionInsert,

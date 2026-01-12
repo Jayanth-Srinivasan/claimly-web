@@ -109,7 +109,8 @@ export async function addClaimMessageAction(
   sessionId: string,
   content: string,
   role: 'user' | 'assistant',
-  attachedFileIds?: string[]
+  attachedFileIds?: string[],
+  adminOnly?: boolean
 ) {
   try {
     const supabase = await createClient()
@@ -126,6 +127,7 @@ export async function addClaimMessageAction(
       role,
       content,
       attached_file_ids: attachedFileIds || [],
+      admin_only: adminOnly || false,
     })
 
     const message = dbMessageToMessage(dbMessage)

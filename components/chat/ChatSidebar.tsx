@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils'
 import { ChatHistoryList } from './ChatHistoryList'
 import type { ChatHistoryItem } from '@/types/chat'
 import type { Profile } from '@/types/auth'
-import { getAllPolicyChatSessions } from '@/lib/chat/local-storage'
 import { getClaimChatsAction } from '@/app/chat/actions'
 
 interface ChatSidebarProps {
@@ -41,23 +40,10 @@ export function ChatSidebar({
 
     const history: ChatHistoryItem[] = []
 
-    // Load policy chats from localStorage
-    const policySessions = getAllPolicyChatSessions()
-    history.push(
-      ...policySessions.map((session) => ({
-        id: session.id,
-        title: session.title,
-        mode: 'policy' as const,
-        lastMessage:
-          session.messages[session.messages.length - 1]?.content ||
-          'No messages',
-        timestamp: new Date(session.updated_at),
-        messageCount: session.messages.length,
-        isArchived: false,
-      }))
-    )
+    // REMOVED: Don't load policy chats from localStorage for sidebar
+    // Policy chats are kept in localStorage but hidden from history
 
-    // Load claim chats from database
+    // Load claim chats from database ONLY
     const result = await getClaimChatsAction()
     if (result.success && result.sessions) {
       history.push(

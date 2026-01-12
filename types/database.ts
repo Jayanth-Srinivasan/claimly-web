@@ -411,6 +411,7 @@ export interface Database {
           is_archived: boolean
           archived_at: string | null
           claim_id: string | null
+          admin_id: string | null
           created_at: string
           updated_at: string
           share_code: string | null
@@ -423,6 +424,7 @@ export interface Database {
           is_archived?: boolean
           archived_at?: string | null
           claim_id?: string | null
+          admin_id?: string | null
           created_at?: string
           updated_at?: string
           share_code?: string | null
@@ -432,6 +434,7 @@ export interface Database {
           is_archived?: boolean
           archived_at?: string | null
           claim_id?: string | null
+          admin_id?: string | null
         }
       }
       chat_messages: {
@@ -445,6 +448,7 @@ export interface Database {
           reports: Json | null
           analysis: Json | null
           charts: Json | null
+          admin_only: boolean
           created_at: string
         }
         Insert: {
@@ -457,6 +461,241 @@ export interface Database {
           reports?: Json | null
           analysis?: Json | null
           charts?: Json | null
+          admin_only?: boolean
+          created_at?: string
+        }
+        Update: {}
+      }
+      claims: {
+        Row: {
+          id: string
+          claim_number: string
+          user_id: string
+          policy_id: string | null
+          chat_session_id: string | null
+          assigned_admin_id: string | null
+          coverage_type_ids: string[]
+          incident_type: string
+          incident_date: string
+          incident_location: string
+          incident_description: string
+          total_claimed_amount: number
+          approved_amount: number | null
+          deductible: number | null
+          currency: string
+          status: 'draft' | 'pending' | 'under_review' | 'approved' | 'rejected' | 'paid'
+          priority: 'low' | 'normal' | 'high' | 'urgent'
+          claim_summary: Json
+          rule_evaluation_results: Json
+          fraud_assessment: Json
+          ai_analysis: Json
+          eligibility_status: string | null
+          is_complete: boolean
+          ai_validated: boolean
+          submitted_at: string | null
+          created_at: string
+          updated_at: string
+          reviewed_at: string | null
+          resolved_at: string | null
+        }
+        Insert: {
+          id?: string
+          claim_number: string
+          user_id: string
+          policy_id?: string | null
+          chat_session_id?: string | null
+          assigned_admin_id?: string | null
+          coverage_type_ids: string[]
+          incident_type: string
+          incident_date: string
+          incident_location: string
+          incident_description: string
+          total_claimed_amount: number
+          approved_amount?: number | null
+          deductible?: number | null
+          currency?: string
+          status?: 'draft' | 'pending' | 'under_review' | 'approved' | 'rejected' | 'paid'
+          priority?: 'low' | 'normal' | 'high' | 'urgent'
+          claim_summary?: Json
+          rule_evaluation_results?: Json
+          fraud_assessment?: Json
+          ai_analysis?: Json
+          eligibility_status?: string | null
+          is_complete?: boolean
+          ai_validated?: boolean
+          submitted_at?: string | null
+          created_at?: string
+          updated_at?: string
+          reviewed_at?: string | null
+          resolved_at?: string | null
+        }
+        Update: {
+          claim_number?: string
+          policy_id?: string | null
+          assigned_admin_id?: string | null
+          coverage_type_ids?: string[]
+          incident_type?: string
+          incident_date?: string
+          incident_location?: string
+          incident_description?: string
+          total_claimed_amount?: number
+          approved_amount?: number | null
+          deductible?: number | null
+          currency?: string
+          status?: 'draft' | 'pending' | 'under_review' | 'approved' | 'rejected' | 'paid'
+          priority?: 'low' | 'normal' | 'high' | 'urgent'
+          claim_summary?: Json
+          rule_evaluation_results?: Json
+          fraud_assessment?: Json
+          ai_analysis?: Json
+          eligibility_status?: string | null
+          is_complete?: boolean
+          ai_validated?: boolean
+          submitted_at?: string | null
+          reviewed_at?: string | null
+          resolved_at?: string | null
+        }
+      }
+      claim_documents: {
+        Row: {
+          id: string
+          claim_id: string
+          chat_message_id: string | null
+          file_name: string
+          file_path: string
+          file_size: number | null
+          file_type: string
+          mime_type: string | null
+          inferred_document_type: string | null
+          document_purpose: string | null
+          ocr_data: Json
+          extracted_entities: Json
+          validation_results: Json
+          authenticity_score: number | null
+          tampering_detected: boolean
+          auto_filled_fields: Json
+          processing_status: string
+          is_verified: boolean
+          uploaded_at: string
+          processed_at: string | null
+          verified_at: string | null
+        }
+        Insert: {
+          id?: string
+          claim_id: string
+          chat_message_id?: string | null
+          file_name: string
+          file_path: string
+          file_size?: number | null
+          file_type: string
+          mime_type?: string | null
+          inferred_document_type?: string | null
+          document_purpose?: string | null
+          ocr_data?: Json
+          extracted_entities?: Json
+          validation_results?: Json
+          authenticity_score?: number | null
+          tampering_detected?: boolean
+          auto_filled_fields?: Json
+          processing_status?: string
+          is_verified?: boolean
+          uploaded_at?: string
+          processed_at?: string | null
+          verified_at?: string | null
+        }
+        Update: {
+          inferred_document_type?: string | null
+          document_purpose?: string | null
+          ocr_data?: Json
+          extracted_entities?: Json
+          validation_results?: Json
+          authenticity_score?: number | null
+          tampering_detected?: boolean
+          auto_filled_fields?: Json
+          processing_status?: string
+          is_verified?: boolean
+          processed_at?: string | null
+          verified_at?: string | null
+        }
+      }
+      claim_answers: {
+        Row: {
+          id: string
+          claim_id: string
+          question_id: string
+          answer_text: string | null
+          answer_number: number | null
+          answer_date: string | null
+          answer_file_ids: string[] | null
+          answer_select: string | null
+          rule_evaluation_results: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          claim_id: string
+          question_id: string
+          answer_text?: string | null
+          answer_number?: number | null
+          answer_date?: string | null
+          answer_file_ids?: string[] | null
+          answer_select?: string | null
+          rule_evaluation_results?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          answer_text?: string | null
+          answer_number?: number | null
+          answer_date?: string | null
+          answer_file_ids?: string[] | null
+          answer_select?: string | null
+          rule_evaluation_results?: Json
+        }
+      }
+      rule_executions: {
+        Row: {
+          id: string
+          claim_id: string
+          rule_id: string
+          triggered_by: string
+          trigger_data: Json
+          conditions_met: boolean
+          actions_executed: Json
+          input_data: Json
+          output_data: Json
+          executed_at: string
+        }
+        Insert: {
+          id?: string
+          claim_id: string
+          rule_id: string
+          triggered_by: string
+          trigger_data?: Json
+          conditions_met: boolean
+          actions_executed?: Json
+          input_data?: Json
+          output_data?: Json
+          executed_at?: string
+        }
+        Update: {}
+      }
+      claim_notes: {
+        Row: {
+          id: string
+          claim_id: string
+          admin_id: string
+          note_type: string
+          content: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          claim_id: string
+          admin_id: string
+          note_type: string
+          content: string
           created_at?: string
         }
         Update: {}

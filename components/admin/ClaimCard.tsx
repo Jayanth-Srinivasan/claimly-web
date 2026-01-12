@@ -6,11 +6,17 @@ import { cn } from '@/lib/utils'
 interface Claim {
   id: string
   claimNumber: string
+  customerId?: string
   customerName: string
-  status: 'pending' | 'approved' | 'rejected' | 'under-review'
+  customerEmail?: string
+  type?: string
+  status: 'draft' | 'pending' | 'under_review' | 'approved' | 'rejected' | 'paid'
   amount: number
   currency: string
   submittedAt: Date
+  description?: string
+  documents?: any[]
+  messages?: any[]
 }
 
 interface ClaimCardProps {
@@ -19,11 +25,21 @@ interface ClaimCardProps {
   onClick: () => void
 }
 
-const statusConfig = {
+const statusConfig: Record<Claim['status'], { icon: any; className: string; label: string }> = {
+  draft: {
+    icon: Clock,
+    className: 'bg-black/5 text-black/70 dark:text-white/70 border-black/10 dark:border-white/10',
+    label: 'Draft',
+  },
   pending: {
     icon: Clock,
     className: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20',
     label: 'Pending',
+  },
+  under_review: {
+    icon: AlertCircle,
+    className: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+    label: 'Under Review',
   },
   approved: {
     icon: CheckCircle,
@@ -35,15 +51,15 @@ const statusConfig = {
     className: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
     label: 'Rejected',
   },
-  'under-review': {
-    icon: AlertCircle,
-    className: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
-    label: 'Under Review',
+  paid: {
+    icon: CheckCircle,
+    className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+    label: 'Paid',
   },
 }
 
 export function ClaimCard({ claim, isActive, onClick }: ClaimCardProps) {
-  const status = statusConfig[claim.status]
+  const status = statusConfig[claim.status] ?? statusConfig.pending
   const StatusIcon = status.icon
 
   return (
