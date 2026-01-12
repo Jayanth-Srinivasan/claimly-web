@@ -26,6 +26,8 @@ import {
   createClaimChatAction,
   loadChatSessionAction,
   addClaimMessageAction,
+  processChatMessageAction,
+  processPolicyMessageAction,
 } from '@/app/chat/actions'
 
 interface ChatDashboardProps {
@@ -44,30 +46,13 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
   const [mode, setMode] = useState<'policy' | 'claim'>('policy')
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null)
+  const [isAiProcessing, setIsAiProcessing] = useState(false)
 
   // Mode switching dialog
   const [showModeSwitchDialog, setShowModeSwitchDialog] = useState(false)
   const [pendingMode, setPendingMode] = useState<'policy' | 'claim' | null>(
     null
   )
-
-  // Initialize session on mount
-  useEffect(() => {
-    const initializeSession = async () => {
-      const active = getActiveSession()
-      if (active) {
-        await loadSession(active.mode, active.sessionId)
-      } else {
-        // Create initial policy chat
-        const session = createPolicyChatSession()
-        setCurrentSessionId(session.id)
-        setMode('policy')
-        setActiveSession('policy', session.id)
-      }
-    }
-
-    initializeSession()
-  }, [])
 
   // Load a session (policy or claim)
   const loadSession = async (
@@ -96,6 +81,24 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
       }
     }
   }
+
+  // Initialize session on mount
+  useEffect(() => {
+    const initializeSession = async () => {
+      const active = getActiveSession()
+      if (active) {
+        await loadSession(active.mode, active.sessionId)
+      } else {
+        // Create initial policy chat
+        const session = createPolicyChatSession()
+        setCurrentSessionId(session.id)
+        setMode('policy')
+        setActiveSession('policy', session.id)
+      }
+    }
+
+    initializeSession()
+  }, [])
 
   // Handle mode change with save/discard dialog
   const handleModeChange = (newMode: 'policy' | 'claim') => {
@@ -218,26 +221,63 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
       )
     }
 
-    // Mock AI response after 1 second
-    setTimeout(async () => {
-      const aiMessage: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: `I understand you're asking about ${
-          mode === 'policy' ? 'insurance policies' : 'filing a claim'
-        }. How can I help you today?`,
-        timestamp: new Date(),
-      }
+    // Process message with OpenAI
+    setIsAiProcessing(true)
+    
+    if (mode === 'claim') {
+      // Use OpenAI for claim mode (database-backed)
+      try {
+        const result = await processChatMessageAction(
+          currentSessionId,
+          content,
+          fileIds.length > 0 ? fileIds : undefined
+        )
 
-      setMessages((prev) => [...prev, aiMessage])
-
-      // Save AI response
-      if (mode === 'policy') {
-        addMessageToPolicyChat(currentSessionId, aiMessage)
-      } else if (mode === 'claim') {
-        await addClaimMessageAction(currentSessionId, aiMessage.content, 'assistant')
+        if (result.success && result.message) {
+          setMessages((prev) => [...prev, result.message!])
+        } else {
+          toast.error(result.error || 'Failed to get AI response')
+        }
+      } catch (error) {
+        console.error('Error processing message:', error)
+        toast.error('An error occurred while processing your message')
+      } finally {
+        setIsAiProcessing(false)
       }
-    }, 1000)
+    } else {
+      // For policy mode, use OpenAI but save to localStorage
+      try {
+        // Prepare messages for OpenAI (convert to simple format)
+        const messageHistory = messages.map((msg) => ({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+        }))
+
+        const result = await processPolicyMessageAction([
+          ...messageHistory,
+          { role: 'user', content },
+        ])
+
+        if (result.success && result.content) {
+          const aiMessage: Message = {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: result.content,
+            timestamp: new Date(),
+          }
+
+          setMessages((prev) => [...prev, aiMessage])
+          addMessageToPolicyChat(currentSessionId, aiMessage)
+        } else {
+          toast.error(result.error || 'Failed to get AI response')
+        }
+      } catch (error) {
+        console.error('Error processing message:', error)
+        toast.error('An error occurred while processing your message')
+      } finally {
+        setIsAiProcessing(false)
+      }
+    }
   }
 
   const handleSuggestedPrompt = (prompt: string) => {
@@ -288,6 +328,7 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
           messages={messages}
           mode={mode}
           onSuggestedPrompt={handleSuggestedPrompt}
+          isLoading={isAiProcessing}
         />
 
         {/* Input */}

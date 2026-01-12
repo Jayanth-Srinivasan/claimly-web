@@ -213,7 +213,7 @@ export function ClaimDetailPage({ claimId, profile: _profile }: ClaimDetailPageP
   const status = statusConfig[claim.status]
   const StatusIcon = status.icon
 
-  const handleSendMessage = (content: string, _files: File[]) => {
+  const handleSendMessage = async (content: string, _files: File[]) => {
     if (!claim) return
 
     const newMessage: ClaimMessage = {
@@ -224,6 +224,39 @@ export function ClaimDetailPage({ claimId, profile: _profile }: ClaimDetailPageP
     }
 
     setClaim({ ...claim, messages: [...claim.messages, newMessage] })
+
+    // If in AI mode, get AI response
+    if (chatMode === 'ai') {
+      try {
+        const { processAdminChatMessageAction } = await import('@/app/chat/actions')
+        const messageHistory = claim.messages.map((msg) => ({
+          role: msg.role === 'customer' ? 'user' : msg.role === 'admin' ? 'admin' : 'assistant',
+          content: msg.content,
+        }))
+
+        const result = await processAdminChatMessageAction(
+          claim.id,
+          _profile.id,
+          content,
+          messageHistory
+        )
+
+        if (result.success && result.content) {
+          const aiMessage: ClaimMessage = {
+            id: `ai${Date.now()}`,
+            role: 'ai',
+            content: result.content,
+            timestamp: new Date(),
+          }
+
+          setClaim({ ...claim, messages: [...claim.messages, newMessage, aiMessage] })
+        } else {
+          console.error('Failed to get AI response:', result.error)
+        }
+      } catch (error) {
+        console.error('Error getting AI response:', error)
+      }
+    }
   }
 
   const handleUpdateStatus = (newStatus: Claim['status']) => {

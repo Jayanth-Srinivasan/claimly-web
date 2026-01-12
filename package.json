@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "npx supabase gen types typescript --project-id \"brxdxqjhalkwswyhkgri\" --schema public > types/database.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -26,6 +27,7 @@
     "react-dom": "19.2.3",
     "react-hook-form": "^7.70.0",
     "react-webcam": "^7.2.0",
+    "openai": "^4.0.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.3.5"

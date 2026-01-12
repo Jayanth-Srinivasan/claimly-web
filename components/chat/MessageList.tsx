@@ -2,13 +2,15 @@
 
 import { useEffect, useRef } from 'react'
 import { ChatMessage } from './ChatMessage'
-import { Sparkles, FileText, ClipboardList, HelpCircle, Shield } from 'lucide-react'
+import { Sparkles, FileText, ClipboardList, HelpCircle, Shield, Bot } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { Message } from '@/types/chat'
 
 interface MessageListProps {
   messages: Message[]
   mode: 'policy' | 'claim'
   onSuggestedPrompt?: (prompt: string) => void
+  isLoading?: boolean
 }
 
 const policySuggestions = [
@@ -41,13 +43,13 @@ const claimSuggestions = [
   },
 ]
 
-export function MessageList({ messages, mode, onSuggestedPrompt }: MessageListProps) {
+export function MessageList({ messages, mode, onSuggestedPrompt, isLoading = false }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const suggestions = mode === 'policy' ? policySuggestions : claimSuggestions
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, isLoading])
 
   if (messages.length === 0) {
     return (
@@ -101,6 +103,31 @@ export function MessageList({ messages, mode, onSuggestedPrompt }: MessageListPr
       {messages.map((message) => (
         <ChatMessage key={message.id} message={message} />
       ))}
+      
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          {/* Avatar */}
+          <div className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-black/10 dark:bg-white/10">
+            <Bot className="h-4 w-4 text-black dark:text-white" />
+          </div>
+
+          {/* Loading Content */}
+          <div className="flex flex-col gap-1.5 max-w-[75%] md:max-w-[65%]">
+            <div className="rounded-2xl px-4 py-3 bg-black/3 dark:bg-white/3 border border-black/5 dark:border-white/5">
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                  <div className="h-2 w-2 bg-black/40 dark:bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="h-2 w-2 bg-black/40 dark:bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="h-2 w-2 bg-black/40 dark:bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                </div>
+                <span className="text-xs text-black/50 dark:text-white/50">AI is thinking...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <div ref={scrollRef} />
     </div>
   )

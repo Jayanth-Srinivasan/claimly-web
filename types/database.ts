@@ -6,490 +6,1212 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export interface Database {
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.1"
+  }
   public: {
     Tables: {
-      profiles: {
+      chat_messages: {
         Row: {
-          id: string
-          custom_id: string
-          email: string
-          full_name: string
-          date_of_birth: string | null
-          gender: 'male' | 'female' | 'other' | 'prefer-not-to-say' | null
-          phone_number: string | null
-          country: string | null
-          address_line1: string | null
-          address_line2: string | null
-          city: string | null
-          state: string | null
-          zip_code: string | null
-          occupation: string | null
-          is_admin: boolean
+          admin_only: boolean | null
+          analysis: Json | null
+          attached_file_ids: string[] | null
+          charts: Json | null
+          content: string
           created_at: string
-          updated_at: string
-          onboarding_completed_at: string | null
+          id: string
+          reports: Json | null
+          role: string
+          session_id: string
+          sources: Json | null
         }
         Insert: {
-          id: string
-          custom_id: string
-          email: string
-          full_name: string
-          date_of_birth?: string | null
-          gender?: 'male' | 'female' | 'other' | 'prefer-not-to-say' | null
-          phone_number?: string | null
-          country?: string | null
-          address_line1?: string | null
-          address_line2?: string | null
-          city?: string | null
-          state?: string | null
-          zip_code?: string | null
-          occupation?: string | null
-          is_admin?: boolean
+          admin_only?: boolean | null
+          analysis?: Json | null
+          attached_file_ids?: string[] | null
+          charts?: Json | null
+          content: string
           created_at?: string
-          updated_at?: string
-          onboarding_completed_at?: string | null
+          id?: string
+          reports?: Json | null
+          role: string
+          session_id: string
+          sources?: Json | null
         }
         Update: {
-          id?: string
-          custom_id?: string
-          email?: string
-          full_name?: string
-          date_of_birth?: string | null
-          gender?: 'male' | 'female' | 'other' | 'prefer-not-to-say' | null
-          phone_number?: string | null
-          country?: string | null
-          address_line1?: string | null
-          address_line2?: string | null
-          city?: string | null
-          state?: string | null
-          zip_code?: string | null
-          occupation?: string | null
-          is_admin?: boolean
+          admin_only?: boolean | null
+          analysis?: Json | null
+          attached_file_ids?: string[] | null
+          charts?: Json | null
+          content?: string
           created_at?: string
-          updated_at?: string
-          onboarding_completed_at?: string | null
+          id?: string
+          reports?: Json | null
+          role?: string
+          session_id?: string
+          sources?: Json | null
         }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "chat_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_sessions: {
+        Row: {
+          admin_id: string | null
+          archived_at: string | null
+          claim_id: string | null
+          created_at: string
+          id: string
+          is_archived: boolean
+          mode: string
+          share_code: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_id?: string | null
+          archived_at?: string | null
+          claim_id?: string | null
+          created_at?: string
+          id?: string
+          is_archived?: boolean
+          mode: string
+          share_code?: string | null
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_id?: string | null
+          archived_at?: string | null
+          claim_id?: string | null
+          created_at?: string
+          id?: string
+          is_archived?: boolean
+          mode?: string
+          share_code?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_sessions_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claim_answers: {
+        Row: {
+          answer_date: string | null
+          answer_file_ids: string[] | null
+          answer_number: number | null
+          answer_select: string | null
+          answer_text: string | null
+          claim_id: string
+          created_at: string | null
+          id: string
+          question_id: string
+          rule_evaluation_results: Json | null
+          updated_at: string | null
+        }
+        Insert: {
+          answer_date?: string | null
+          answer_file_ids?: string[] | null
+          answer_number?: number | null
+          answer_select?: string | null
+          answer_text?: string | null
+          claim_id: string
+          created_at?: string | null
+          id?: string
+          question_id: string
+          rule_evaluation_results?: Json | null
+          updated_at?: string | null
+        }
+        Update: {
+          answer_date?: string | null
+          answer_file_ids?: string[] | null
+          answer_number?: number | null
+          answer_select?: string | null
+          answer_text?: string | null
+          claim_id?: string
+          created_at?: string | null
+          id?: string
+          question_id?: string
+          rule_evaluation_results?: Json | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claim_answers_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claims"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claim_answers_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claim_documents: {
+        Row: {
+          authenticity_score: number | null
+          auto_filled_fields: Json | null
+          chat_message_id: string | null
+          claim_id: string
+          document_purpose: string | null
+          extracted_entities: Json | null
+          file_name: string
+          file_path: string
+          file_size: number | null
+          file_type: string
+          id: string
+          inferred_document_type: string | null
+          is_verified: boolean | null
+          mime_type: string | null
+          ocr_data: Json | null
+          processed_at: string | null
+          processing_status: string | null
+          risk_flags: Json | null
+          tampering_detected: boolean | null
+          uploaded_at: string | null
+          validation_results: Json | null
+          verified_at: string | null
+        }
+        Insert: {
+          authenticity_score?: number | null
+          auto_filled_fields?: Json | null
+          chat_message_id?: string | null
+          claim_id: string
+          document_purpose?: string | null
+          extracted_entities?: Json | null
+          file_name: string
+          file_path: string
+          file_size?: number | null
+          file_type: string
+          id?: string
+          inferred_document_type?: string | null
+          is_verified?: boolean | null
+          mime_type?: string | null
+          ocr_data?: Json | null
+          processed_at?: string | null
+          processing_status?: string | null
+          risk_flags?: Json | null
+          tampering_detected?: boolean | null
+          uploaded_at?: string | null
+          validation_results?: Json | null
+          verified_at?: string | null
+        }
+        Update: {
+          authenticity_score?: number | null
+          auto_filled_fields?: Json | null
+          chat_message_id?: string | null
+          claim_id?: string
+          document_purpose?: string | null
+          extracted_entities?: Json | null
+          file_name?: string
+          file_path?: string
+          file_size?: number | null
+          file_type?: string
+          id?: string
+          inferred_document_type?: string | null
+          is_verified?: boolean | null
+          mime_type?: string | null
+          ocr_data?: Json | null
+          processed_at?: string | null
+          processing_status?: string | null
+          risk_flags?: Json | null
+          tampering_detected?: boolean | null
+          uploaded_at?: string | null
+          validation_results?: Json | null
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claim_documents_chat_message_id_fkey"
+            columns: ["chat_message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claim_documents_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claims"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claim_extracted_information: {
+        Row: {
+          claim_id: string
+          confidence: string | null
+          created_at: string | null
+          field_name: string
+          field_value: Json
+          id: string
+          source: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          claim_id: string
+          confidence?: string | null
+          created_at?: string | null
+          field_name: string
+          field_value: Json
+          id?: string
+          source?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          claim_id?: string
+          confidence?: string | null
+          created_at?: string | null
+          field_name?: string
+          field_value?: Json
+          id?: string
+          source?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claim_extracted_information_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claims"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claim_intake_state: {
+        Row: {
+          categorization_confidence: string | null
+          claim_id: string | null
+          claim_number: string | null
+          completed_at: string | null
+          coverage_type_ids: string[] | null
+          created_at: string
+          current_stage: string
+          database_questions_asked: string[] | null
+          extracted_data: Json | null
+          id: string
+          incident_description: string | null
+          questioning_state: Json | null
+          session_id: string
+          updated_at: string
+          uploaded_document_ids: string[] | null
+          user_id: string
+          validation_errors: Json | null
+          validation_passed: boolean | null
+          validation_results: Json | null
+        }
+        Insert: {
+          categorization_confidence?: string | null
+          claim_id?: string | null
+          claim_number?: string | null
+          completed_at?: string | null
+          coverage_type_ids?: string[] | null
+          created_at?: string
+          current_stage?: string
+          database_questions_asked?: string[] | null
+          extracted_data?: Json | null
+          id?: string
+          incident_description?: string | null
+          questioning_state?: Json | null
+          session_id: string
+          updated_at?: string
+          uploaded_document_ids?: string[] | null
+          user_id: string
+          validation_errors?: Json | null
+          validation_passed?: boolean | null
+          validation_results?: Json | null
+        }
+        Update: {
+          categorization_confidence?: string | null
+          claim_id?: string | null
+          claim_number?: string | null
+          completed_at?: string | null
+          coverage_type_ids?: string[] | null
+          created_at?: string
+          current_stage?: string
+          database_questions_asked?: string[] | null
+          extracted_data?: Json | null
+          id?: string
+          incident_description?: string | null
+          questioning_state?: Json | null
+          session_id?: string
+          updated_at?: string
+          uploaded_document_ids?: string[] | null
+          user_id?: string
+          validation_errors?: Json | null
+          validation_passed?: boolean | null
+          validation_results?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claim_intake_state_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claims"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claim_intake_state_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "chat_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claim_notes: {
+        Row: {
+          admin_id: string
+          claim_id: string
+          content: string
+          created_at: string | null
+          id: string
+          note_type: string
+        }
+        Insert: {
+          admin_id: string
+          claim_id: string
+          content: string
+          created_at?: string | null
+          id?: string
+          note_type: string
+        }
+        Update: {
+          admin_id?: string
+          claim_id?: string
+          content?: string
+          created_at?: string | null
+          id?: string
+          note_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claim_notes_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claim_notes_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claims"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claim_questioning_state: {
+        Row: {
+          claim_id: string
+          conversation_history: Json | null
+          created_at: string | null
+          current_focus: string | null
+          database_questions_asked: Json | null
+          id: string
+          updated_at: string | null
+        }
+        Insert: {
+          claim_id: string
+          conversation_history?: Json | null
+          created_at?: string | null
+          current_focus?: string | null
+          database_questions_asked?: Json | null
+          id?: string
+          updated_at?: string | null
+        }
+        Update: {
+          claim_id?: string
+          conversation_history?: Json | null
+          created_at?: string | null
+          current_focus?: string | null
+          database_questions_asked?: Json | null
+          id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claim_questioning_state_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: true
+            referencedRelation: "claims"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claims: {
+        Row: {
+          ai_analysis: Json | null
+          ai_validated: boolean | null
+          approved_amount: number | null
+          assigned_admin_id: string | null
+          chat_session_id: string | null
+          claim_number: string
+          claim_summary: Json | null
+          coverage_type_ids: string[]
+          created_at: string | null
+          currency: string | null
+          deductible: number | null
+          eligibility_status: string | null
+          fraud_assessment: Json | null
+          id: string
+          incident_date: string
+          incident_description: string
+          incident_location: string
+          incident_type: string
+          is_complete: boolean | null
+          policy_id: string | null
+          priority: string | null
+          resolved_at: string | null
+          reviewed_at: string | null
+          rule_evaluation_results: Json | null
+          status: string
+          submitted_at: string | null
+          total_claimed_amount: number
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          ai_analysis?: Json | null
+          ai_validated?: boolean | null
+          approved_amount?: number | null
+          assigned_admin_id?: string | null
+          chat_session_id?: string | null
+          claim_number: string
+          claim_summary?: Json | null
+          coverage_type_ids: string[]
+          created_at?: string | null
+          currency?: string | null
+          deductible?: number | null
+          eligibility_status?: string | null
+          fraud_assessment?: Json | null
+          id?: string
+          incident_date: string
+          incident_description: string
+          incident_location: string
+          incident_type: string
+          is_complete?: boolean | null
+          policy_id?: string | null
+          priority?: string | null
+          resolved_at?: string | null
+          reviewed_at?: string | null
+          rule_evaluation_results?: Json | null
+          status?: string
+          submitted_at?: string | null
+          total_claimed_amount: number
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          ai_analysis?: Json | null
+          ai_validated?: boolean | null
+          approved_amount?: number | null
+          assigned_admin_id?: string | null
+          chat_session_id?: string | null
+          claim_number?: string
+          claim_summary?: Json | null
+          coverage_type_ids?: string[]
+          created_at?: string | null
+          currency?: string | null
+          deductible?: number | null
+          eligibility_status?: string | null
+          fraud_assessment?: Json | null
+          id?: string
+          incident_date?: string
+          incident_description?: string
+          incident_location?: string
+          incident_type?: string
+          is_complete?: boolean | null
+          policy_id?: string | null
+          priority?: string | null
+          resolved_at?: string | null
+          reviewed_at?: string | null
+          rule_evaluation_results?: Json | null
+          status?: string
+          submitted_at?: string | null
+          total_claimed_amount?: number
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claims_assigned_admin_id_fkey"
+            columns: ["assigned_admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claims_chat_session_id_fkey"
+            columns: ["chat_session_id"]
+            isOneToOne: false
+            referencedRelation: "chat_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claims_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claims_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       coverage_types: {
         Row: {
+          category: string | null
+          created_at: string
+          description: string | null
+          display_order: number
+          icon: string | null
           id: string
+          is_active: boolean
+          metadata: Json | null
           name: string
           slug: string
-          description: string | null
-          category: string | null
-          icon: string | null
-          is_active: boolean
-          display_order: number
-          metadata: Json
-          created_at: string
           updated_at: string
         }
         Insert: {
+          category?: string | null
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          icon?: string | null
           id?: string
+          is_active?: boolean
+          metadata?: Json | null
           name: string
           slug: string
-          description?: string | null
-          category?: string | null
-          icon?: string | null
-          is_active?: boolean
-          display_order?: number
-          metadata?: Json
-          created_at?: string
           updated_at?: string
         }
         Update: {
+          category?: string | null
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          icon?: string | null
           id?: string
+          is_active?: boolean
+          metadata?: Json | null
           name?: string
           slug?: string
-          description?: string | null
-          category?: string | null
-          icon?: string | null
-          is_active?: boolean
-          display_order?: number
-          metadata?: Json
-          created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       policies: {
         Row: {
-          id: string
-          name: string
-          description: string | null
           coverage_items: Json
-          deductible: number | null
-          premium: number | null
-          currency: string | null
-          premium_frequency: 'monthly' | 'quarterly' | 'annually' | null
-          policy_term_months: number | null
-          exclusions: string[]
-          is_active: boolean
           created_at: string
+          currency: string | null
+          deductible: number | null
+          description: string | null
+          exclusions: string[] | null
+          id: string
+          is_active: boolean
+          name: string
+          policy_term_months: number | null
+          premium: number | null
+          premium_frequency: string | null
           updated_at: string
         }
         Insert: {
-          id?: string
-          name: string
-          description?: string | null
-          coverage_items: Json
-          deductible?: number | null
-          premium?: number | null
-          currency?: string | null
-          premium_frequency?: 'monthly' | 'quarterly' | 'annually' | null
-          policy_term_months?: number | null
-          exclusions?: string[]
-          is_active?: boolean
+          coverage_items?: Json
           created_at?: string
+          currency?: string | null
+          deductible?: number | null
+          description?: string | null
+          exclusions?: string[] | null
+          id?: string
+          is_active?: boolean
+          name: string
+          policy_term_months?: number | null
+          premium?: number | null
+          premium_frequency?: string | null
           updated_at?: string
         }
         Update: {
-          id?: string
-          name?: string
-          description?: string | null
           coverage_items?: Json
-          deductible?: number | null
-          premium?: number | null
-          currency?: string | null
-          premium_frequency?: 'monthly' | 'quarterly' | 'annually' | null
-          policy_term_months?: number | null
-          exclusions?: string[]
-          is_active?: boolean
           created_at?: string
+          currency?: string | null
+          deductible?: number | null
+          description?: string | null
+          exclusions?: string[] | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          policy_term_months?: number | null
+          premium?: number | null
+          premium_frequency?: string | null
           updated_at?: string
         }
+        Relationships: []
       }
       policy_coverage_types: {
         Row: {
-          id: string
-          policy_id: string
-          coverage_type_id: string
+          additional_premium: number | null
           coverage_limit: number | null
-          deductible: number | null
-          is_optional: boolean
-          additional_premium: number
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          policy_id: string
           coverage_type_id: string
-          coverage_limit?: number | null
-          deductible?: number | null
-          is_optional?: boolean
-          additional_premium?: number
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          policy_id?: string
-          coverage_type_id?: string
-          coverage_limit?: number | null
-          deductible?: number | null
-          is_optional?: boolean
-          additional_premium?: number
-          created_at?: string
-          updated_at?: string
-        }
-      }
-      questionnaires: {
-        Row: {
-          id: string
-          claim_type: Database['public']['Enums']['claim_type'] | null
-          coverage_type_id: string | null
-          name: string
-          description: string | null
-          version: number
-          is_published: boolean
-          parent_version_id: string | null
-          effective_from: string | null
-          effective_until: string | null
-          is_active: boolean
           created_at: string
+          deductible: number | null
+          id: string
+          is_optional: boolean
+          policy_id: string
           updated_at: string
         }
         Insert: {
-          id?: string
-          claim_type?: Database['public']['Enums']['claim_type'] | null
-          coverage_type_id?: string | null
-          name: string
-          description?: string | null
-          version?: number
-          is_published?: boolean
-          parent_version_id?: string | null
-          effective_from?: string | null
-          effective_until?: string | null
-          is_active?: boolean
+          additional_premium?: number | null
+          coverage_limit?: number | null
+          coverage_type_id: string
           created_at?: string
+          deductible?: number | null
+          id?: string
+          is_optional?: boolean
+          policy_id: string
           updated_at?: string
         }
         Update: {
-          id?: string
-          claim_type?: Database['public']['Enums']['claim_type'] | null
-          coverage_type_id?: string | null
-          name?: string
-          description?: string | null
-          version?: number
-          is_published?: boolean
-          parent_version_id?: string | null
-          effective_from?: string | null
-          effective_until?: string | null
-          is_active?: boolean
+          additional_premium?: number | null
+          coverage_limit?: number | null
+          coverage_type_id?: string
           created_at?: string
+          deductible?: number | null
+          id?: string
+          is_optional?: boolean
+          policy_id?: string
           updated_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "policy_coverage_types_coverage_type_id_fkey"
+            columns: ["coverage_type_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "policy_coverage_types_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      question_dependencies: {
+      profiles: {
         Row: {
-          id: string
-          question_id: string
-          depends_on_question_id: string
-          dependency_type: string
+          address_line1: string | null
+          address_line2: string | null
+          city: string | null
+          country: string | null
           created_at: string
+          custom_id: string
+          date_of_birth: string | null
+          email: string
+          full_name: string
+          gender: string | null
+          id: string
+          is_admin: boolean
+          occupation: string | null
+          onboarding_completed_at: string | null
+          phone_number: string | null
+          state: string | null
+          updated_at: string
+          zip_code: string | null
         }
         Insert: {
-          id?: string
-          question_id: string
-          depends_on_question_id: string
-          dependency_type?: string
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
+          country?: string | null
           created_at?: string
+          custom_id: string
+          date_of_birth?: string | null
+          email: string
+          full_name: string
+          gender?: string | null
+          id: string
+          is_admin?: boolean
+          occupation?: string | null
+          onboarding_completed_at?: string | null
+          phone_number?: string | null
+          state?: string | null
+          updated_at?: string
+          zip_code?: string | null
         }
         Update: {
-          id?: string
-          question_id?: string
-          depends_on_question_id?: string
-          dependency_type?: string
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
+          country?: string | null
           created_at?: string
+          custom_id?: string
+          date_of_birth?: string | null
+          email?: string
+          full_name?: string
+          gender?: string | null
+          id?: string
+          is_admin?: boolean
+          occupation?: string | null
+          onboarding_completed_at?: string | null
+          phone_number?: string | null
+          state?: string | null
+          updated_at?: string
+          zip_code?: string | null
         }
+        Relationships: []
       }
       questions: {
         Row: {
-          id: string
           coverage_type_id: string
-          question_text: string
-          field_type: Database['public']['Enums']['field_type']
+          created_at: string
+          field_type: Database["public"]["Enums"]["field_type"]
+          help_text: string | null
+          id: string
           is_required: boolean
           options: string[] | null
           order_index: number
           placeholder: string | null
-          help_text: string | null
-          created_at: string
+          question_text: string
           updated_at: string
         }
         Insert: {
-          id?: string
           coverage_type_id: string
-          question_text: string
-          field_type: Database['public']['Enums']['field_type']
+          created_at?: string
+          field_type: Database["public"]["Enums"]["field_type"]
+          help_text?: string | null
+          id?: string
           is_required?: boolean
           options?: string[] | null
           order_index: number
           placeholder?: string | null
-          help_text?: string | null
-          created_at?: string
+          question_text: string
           updated_at?: string
         }
         Update: {
-          id?: string
           coverage_type_id?: string
-          question_text?: string
-          field_type?: Database['public']['Enums']['field_type']
+          created_at?: string
+          field_type?: Database["public"]["Enums"]["field_type"]
+          help_text?: string | null
+          id?: string
           is_required?: boolean
           options?: string[] | null
           order_index?: number
           placeholder?: string | null
-          help_text?: string | null
-          created_at?: string
+          question_text?: string
           updated_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "fk_questions_coverage_type"
+            columns: ["coverage_type_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rule_executions: {
+        Row: {
+          actions_executed: Json | null
+          claim_id: string
+          conditions_met: boolean
+          executed_at: string | null
+          id: string
+          input_data: Json | null
+          output_data: Json | null
+          rule_id: string
+          trigger_data: Json | null
+          triggered_by: string
+        }
+        Insert: {
+          actions_executed?: Json | null
+          claim_id: string
+          conditions_met: boolean
+          executed_at?: string | null
+          id?: string
+          input_data?: Json | null
+          output_data?: Json | null
+          rule_id: string
+          trigger_data?: Json | null
+          triggered_by: string
+        }
+        Update: {
+          actions_executed?: Json | null
+          claim_id?: string
+          conditions_met?: boolean
+          executed_at?: string | null
+          id?: string
+          input_data?: Json | null
+          output_data?: Json | null
+          rule_id?: string
+          trigger_data?: Json | null
+          triggered_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rule_executions_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "claims"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rule_executions_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "rules"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rules: {
         Row: {
-          id: string
-          coverage_type_id: string
-          question_id: string | null
-          rule_type: Database['public']['Enums']['rule_type']
-          name: string
-          description: string | null
-          conditions: Json
           actions: Json
-          priority: number
-          is_active: boolean
-          error_message: string | null
+          conditions: Json
+          coverage_type_id: string
           created_at: string
+          description: string | null
+          error_message: string | null
+          id: string
+          is_active: boolean
+          name: string
+          priority: number
+          rule_type: Database["public"]["Enums"]["rule_type"]
           updated_at: string
         }
         Insert: {
-          id?: string
-          coverage_type_id: string
-          question_id?: string | null
-          rule_type: Database['public']['Enums']['rule_type']
-          name: string
-          description?: string | null
-          conditions?: Json
           actions?: Json
-          priority?: number
-          is_active?: boolean
-          error_message?: string | null
+          conditions?: Json
+          coverage_type_id: string
           created_at?: string
+          description?: string | null
+          error_message?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          priority?: number
+          rule_type: Database["public"]["Enums"]["rule_type"]
           updated_at?: string
         }
         Update: {
-          id?: string
-          coverage_type_id?: string
-          question_id?: string | null
-          rule_type?: Database['public']['Enums']['rule_type']
-          name?: string
-          description?: string | null
-          conditions?: Json
           actions?: Json
-          priority?: number
-          is_active?: boolean
-          error_message?: string | null
+          conditions?: Json
+          coverage_type_id?: string
           created_at?: string
+          description?: string | null
+          error_message?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          priority?: number
+          rule_type?: Database["public"]["Enums"]["rule_type"]
           updated_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "rules_coverage_type_id_fkey"
+            columns: ["coverage_type_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_types"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_policies: {
         Row: {
-          id: string
-          user_id: string
-          policy_id: string
-          policy_name: string
+          coverage_items: Json | null
+          created_at: string | null
+          currency: string | null
           enrolled_at: string
           expires_at: string | null
-          coverage_items: Json
-          total_premium: number | null
-          currency: string
-          is_active: boolean
-          status: string
+          id: string
+          is_active: boolean | null
           notes: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
           policy_id: string
           policy_name: string
+          status: string | null
+          total_premium: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          coverage_items?: Json | null
+          created_at?: string | null
+          currency?: string | null
           enrolled_at?: string
           expires_at?: string | null
-          coverage_items?: Json
-          total_premium?: number | null
-          currency?: string
-          is_active?: boolean
-          status?: string
+          id?: string
+          is_active?: boolean | null
           notes?: string | null
-          created_at?: string
-          updated_at?: string
+          policy_id: string
+          policy_name: string
+          status?: string | null
+          total_premium?: number | null
+          updated_at?: string | null
+          user_id: string
         }
         Update: {
+          coverage_items?: Json | null
+          created_at?: string | null
+          currency?: string | null
+          enrolled_at?: string
+          expires_at?: string | null
           id?: string
-          user_id?: string
+          is_active?: boolean | null
+          notes?: string | null
           policy_id?: string
           policy_name?: string
-          enrolled_at?: string
-          expires_at?: string | null
-          coverage_items?: Json
+          status?: string | null
           total_premium?: number | null
-          currency?: string
-          is_active?: boolean
-          status?: string
-          notes?: string | null
-          created_at?: string
-          updated_at?: string
+          updated_at?: string | null
+          user_id?: string
         }
-      }
-      chat_sessions: {
-        Row: {
-          id: string
-          user_id: string
-          title: string
-          mode: 'policy' | 'claim'
-          is_archived: boolean
-          archived_at: string | null
-          claim_id: string | null
-          created_at: string
-          updated_at: string
-          share_code: string | null
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          title?: string
-          mode: 'policy' | 'claim'
-          is_archived?: boolean
-          archived_at?: string | null
-          claim_id?: string | null
-          created_at?: string
-          updated_at?: string
-          share_code?: string | null
-        }
-        Update: {
-          title?: string
-          is_archived?: boolean
-          archived_at?: string | null
-          claim_id?: string | null
-        }
-      }
-      chat_messages: {
-        Row: {
-          id: string
-          session_id: string
-          role: 'user' | 'assistant' | 'system'
-          content: string
-          attached_file_ids: string[]
-          sources: Json | null
-          reports: Json | null
-          analysis: Json | null
-          charts: Json | null
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          session_id: string
-          role: 'user' | 'assistant' | 'system'
-          content: string
-          attached_file_ids?: string[]
-          sources?: Json | null
-          reports?: Json | null
-          analysis?: Json | null
-          charts?: Json | null
-          created_at?: string
-        }
-        Update: {}
+        Relationships: [
+          {
+            foreignKeyName: "user_policies_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_policies_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      ensure_unique_custom_id: { Args: never; Returns: string }
+      generate_custom_id: { Args: never; Returns: string }
     }
     Enums: {
-      claim_type: 'travel' | 'medical' | 'baggage' | 'flight'
-      field_type: 'text' | 'number' | 'date' | 'file' | 'select'
-      rule_type: 'conditional' | 'validation' | 'document' | 'eligibility' | 'calculation'
+      claim_type: "travel" | "medical" | "baggage" | "flight"
+      field_type: "text" | "number" | "date" | "file" | "select"
       rule_operator:
-        | 'equals'
-        | 'not_equals'
-        | 'contains'
-        | 'not_contains'
-        | 'greater_than'
-        | 'greater_than_or_equal'
-        | 'less_than'
-        | 'less_than_or_equal'
-        | 'in'
-        | 'not_in'
-        | 'between'
-        | 'regex'
-        | 'is_empty'
-        | 'is_not_empty'
-        | 'date_before'
-        | 'date_after'
-        | 'date_between'
+        | "equals"
+        | "not_equals"
+        | "contains"
+        | "not_contains"
+        | "greater_than"
+        | "greater_than_or_equal"
+        | "less_than"
+        | "less_than_or_equal"
+        | "in"
+        | "not_in"
+        | "between"
+        | "regex"
+        | "is_empty"
+        | "is_not_empty"
+        | "date_before"
+        | "date_after"
+        | "date_between"
+      rule_type:
+        | "conditional"
+        | "validation"
+        | "document"
+        | "eligibility"
+        | "calculation"
+    }
+    CompositeTypes: {
+      [_ in never]: never
     }
   }
 }
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      claim_type: ["travel", "medical", "baggage", "flight"],
+      field_type: ["text", "number", "date", "file", "select"],
+      rule_operator: [
+        "equals",
+        "not_equals",
+        "contains",
+        "not_contains",
+        "greater_than",
+        "greater_than_or_equal",
+        "less_than",
+        "less_than_or_equal",
+        "in",
+        "not_in",
+        "between",
+        "regex",
+        "is_empty",
+        "is_not_empty",
+        "date_before",
+        "date_after",
+        "date_between",
+      ],
+      rule_type: [
+        "conditional",
+        "validation",
+        "document",
+        "eligibility",
+        "calculation",
+      ],
+    },
+  },
+} as const
