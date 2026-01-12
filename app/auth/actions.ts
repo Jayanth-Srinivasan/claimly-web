@@ -34,23 +34,27 @@ export async function signIn({
       }
     }
 
-    // Check if user has completed onboarding
+    // Check onboarding status and admin flag
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('onboarding_completed_at')
+      .select('onboarding_completed_at, is_admin')
       .eq('id', data.user.id)
-      .single<{ onboarding_completed_at: string | null }>()
+      .single<{ onboarding_completed_at: string | null; is_admin: boolean }>()
 
     if (profileError) {
       console.error("Error fetching profile:", profileError)
       // Continue anyway, redirect to onboarding
     }
 
-    // Redirect based on onboarding status
-    if (profile?.onboarding_completed_at) {
-      redirect("/dashboard")
-    } else {
+    // Redirect based on onboarding status and admin role
+    if (!profile?.onboarding_completed_at) {
       redirect("/onboarding")
+    }
+
+    if (profile.is_admin) {
+      redirect("/admin")
+    } else {
+      redirect("/dashboard")
     }
 
   } catch (error) {

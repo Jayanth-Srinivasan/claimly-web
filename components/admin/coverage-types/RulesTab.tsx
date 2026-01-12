@@ -83,19 +83,52 @@ export function RulesTab({
   }
 
   const formatConditionSummary = (rule: Rule): string => {
-    const conditions = (rule.conditions as RuleCondition[]) || []
-    if (conditions.length === 0) return 'No conditions'
-    const first = conditions[0]
-    const more = conditions.length > 1 ? ` +${conditions.length - 1} more` : ''
-    return `${first.field} ${first.operator} ${JSON.stringify(first.value)}${more}`
+    try {
+      // Handle database structure: { all: [...] } or { any: [...] } or direct array
+      let conditions: any[] = []
+      const rawConditions = rule.conditions as any
+
+      if (Array.isArray(rawConditions)) {
+        conditions = rawConditions
+      } else if (rawConditions?.all) {
+        conditions = rawConditions.all
+      } else if (rawConditions?.any) {
+        conditions = rawConditions.any
+      }
+
+      if (conditions.length === 0) return 'No conditions'
+
+      const first = conditions[0]
+      const more = conditions.length > 1 ? ` +${conditions.length - 1} more` : ''
+
+      // Handle both 'field' and 'question_order' properties
+      const field = first.field || `Q${first.question_order}` || 'unknown'
+      const operator = first.operator || 'unknown'
+      const value = first.value !== undefined ? JSON.stringify(first.value) : 'null'
+
+      return `${field} ${operator} ${value}${more}`
+    } catch (error) {
+      console.error('Error formatting condition summary:', error)
+      return 'Invalid conditions'
+    }
   }
 
   const formatActionSummary = (rule: Rule): string => {
-    const actions = (rule.actions as RuleAction[]) || []
-    if (actions.length === 0) return 'No actions'
-    const first = actions[0]
-    const more = actions.length > 1 ? ` +${actions.length - 1} more` : ''
-    return `${first.type}${more}`
+    try {
+      const actions = Array.isArray(rule.actions) ? rule.actions : []
+      if (actions.length === 0) return 'No actions'
+
+      const first = actions[0] as any
+      const more = actions.length > 1 ? ` +${actions.length - 1} more` : ''
+
+      // Handle both 'type' and 'action' properties
+      const actionType = first.type || first.action || 'unknown'
+
+      return `${actionType}${more}`
+    } catch (error) {
+      console.error('Error formatting action summary:', error)
+      return 'Invalid actions'
+    }
   }
 
   return (

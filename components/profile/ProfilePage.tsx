@@ -1,6 +1,6 @@
 'use client'
 
-import { TopBar } from '@/components/admin/TopBar'
+import { ProfileTopBar } from './ProfileTopBar'
 import { DemographicsCard } from './DemographicsCard'
 import { PoliciesCard } from './PoliciesCard'
 import type { Profile } from '@/types/auth'
@@ -14,7 +14,7 @@ interface ProfilePageProps {
 export function ProfilePage({ profile, userPolicies }: ProfilePageProps) {
   return (
     <div className="flex flex-col h-screen bg-white dark:bg-black overflow-hidden">
-      <TopBar profile={profile} />
+      <ProfileTopBar profile={profile} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">

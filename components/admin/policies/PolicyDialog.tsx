@@ -37,7 +37,6 @@ export function PolicyDialog({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [selectedCoverages, setSelectedCoverages] = useState<SelectedCoverage[]>([])
-  const [coverageItems, setCoverageItems] = useState<CoverageItem[]>([])
   const [isActive, setIsActive] = useState(true)
 
   const [deductible, setDeductible] = useState('')
@@ -50,6 +49,45 @@ export function PolicyDialog({
   const [newExclusion, setNewExclusion] = useState('')
 
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [migrationNotice, setMigrationNotice] = useState<string | null>(null)
+
+  const migrateLegacyCoverages = (
+    legacyItems: CoverageItem[] = [],
+    existing: SelectedCoverage[] = []
+  ): { mapped: SelectedCoverage[]; unmapped: CoverageItem[] } => {
+    if (!legacyItems.length) return { mapped: [], unmapped: [] }
+
+    const normalize = (value: string) =>
+      value.trim().toLowerCase().replace(/\s+/g, '-')
+
+    const selectedIds = new Set(existing.map((c) => c.coverage_type_id))
+
+    const mapped: SelectedCoverage[] = []
+    const unmapped: CoverageItem[] = []
+
+    for (const item of legacyItems) {
+      const match = coverageTypes.find(
+        (ct) =>
+          normalize(ct.name) === normalize(item.name) ||
+          (ct.slug && normalize(ct.slug) === normalize(item.name))
+      )
+
+      if (match && !selectedIds.has(match.id)) {
+        mapped.push({
+          coverage_type_id: match.id,
+          coverage_limit: item.limit,
+          deductible: 0,
+          is_optional: false,
+          additional_premium: 0,
+        })
+        selectedIds.add(match.id)
+      } else {
+        unmapped.push(item)
+      }
+    }
+
+    return { mapped, unmapped }
+  }
 
   // Initialize form when dialog opens or policy changes
   useEffect(() => {
@@ -58,8 +96,22 @@ export function PolicyDialog({
         /* eslint-disable react-hooks/set-state-in-effect */
         setName(policy.name)
         setDescription(policy.description || '')
-        setSelectedCoverages(policyCoverages)
-        setCoverageItems(policy.coverage_items || [])
+        const { mapped, unmapped } = migrateLegacyCoverages(
+          policy.coverage_items || [],
+          policyCoverages
+        )
+        const combinedCoverages = [...policyCoverages, ...mapped]
+        setSelectedCoverages(combinedCoverages)
+        if (mapped.length > 0 || unmapped.length > 0) {
+          setMigrationNotice(
+            `Migrated ${mapped.length} legacy coverage item${mapped.length === 1 ? '' : 's'} into coverage types.` +
+              (unmapped.length > 0
+                ? ` ${unmapped.length} item${unmapped.length === 1 ? ' was' : 's were'} not matched to a coverage type.`
+                : '')
+          )
+        } else {
+          setMigrationNotice(null)
+        }
         setIsActive(policy.is_active ?? true)
         setDeductible(policy.deductible?.toString() || '')
         setPremium(policy.premium?.toString() || '')
@@ -74,7 +126,7 @@ export function PolicyDialog({
         setName('')
         setDescription('')
         setSelectedCoverages([])
-        setCoverageItems([])
+        setMigrationNotice(null)
         setIsActive(true)
         setDeductible('')
         setPremium('')
@@ -97,16 +149,12 @@ export function PolicyDialog({
       newErrors.name = 'Policy name is required'
     }
 
-    if (selectedCoverages.length === 0 && coverageItems.length === 0) {
+    if (selectedCoverages.length === 0) {
       newErrors.coverages = 'At least one coverage type is required'
     }
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
-  }
-
-  const handleRemoveCoverageItem = (index: number) => {
-    setCoverageItems(coverageItems.filter((_, i) => i !== index))
   }
 
   const handleAddExclusion = () => {
@@ -132,7 +180,7 @@ export function PolicyDialog({
       {
         name: name.trim(),
         description: description.trim() || null,
-        coverage_items: coverageItems, // Keep for backward compatibility
+        coverage_items: [], // Legacy field no longer used
         deductible: deductible ? parseFloat(deductible) : null,
         premium: premium ? parseFloat(premium) : null,
         currency: currency || null,
@@ -286,38 +334,10 @@ export function PolicyDialog({
               error={errors.coverages}
             />
 
-            {/* Legacy Coverage Items (for backward compatibility) */}
-            {coverageItems.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-sm text-black/60 dark:text-white/60">
-                  Legacy Coverage Items
-                </Label>
-                <div className="space-y-2 p-3 border border-black/10 dark:border-white/10 rounded-lg bg-black/5 dark:bg-white/5">
-                  {coverageItems.map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between px-3 py-2 rounded-md bg-white dark:bg-black border border-black/10 dark:border-white/10"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="font-medium">{item.name}</span>
-                        <span className="text-sm text-black/60 dark:text-white/60">
-                          {currency || 'USD'} {item.limit.toLocaleString()}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCoverageItem(index)}
-                        className="hover:text-red-600 dark:hover:text-red-400"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-black/60 dark:text-white/60">
-                  These are legacy coverage items. Add new coverage types above.
-                </p>
-              </div>
+            {migrationNotice && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {migrationNotice}
+              </p>
             )}
           </div>
 

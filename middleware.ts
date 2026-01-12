@@ -38,9 +38,9 @@ export async function middleware(request: NextRequest) {
       try {
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('onboarding_completed_at')
+          .select('onboarding_completed_at, is_admin')
           .eq('id', user.id)
-          .single<{ onboarding_completed_at: string | null }>()
+          .single<{ onboarding_completed_at: string | null; is_admin: boolean }>()
 
         if (profileError) {
           console.error('Profile fetch error in middleware:', profileError)
@@ -51,6 +51,11 @@ export async function middleware(request: NextRequest) {
         if (!profile?.onboarding_completed_at) {
           return NextResponse.redirect(new URL('/onboarding', request.url))
         }
+
+        if (profile.is_admin) {
+          return NextResponse.redirect(new URL('/admin', request.url))
+        }
+
         return NextResponse.redirect(new URL('/dashboard', request.url))
       } catch (dbError) {
         console.error('Database error in middleware:', dbError)

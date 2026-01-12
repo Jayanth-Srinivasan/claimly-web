@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Send, Paperclip, Camera } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
@@ -14,9 +14,10 @@ interface ChatInputProps {
   mode: 'policy' | 'claim'
   onSendMessage: (content: string, files: File[]) => void
   isUploading?: boolean
+  allowAttachments?: boolean
 }
 
-export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) {
+export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments = true }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [showCamera, setShowCamera] = useState(false)
@@ -24,10 +25,19 @@ export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const webcamRef = useRef<any>(null)
 
+  // Clear attachments when switching modes or when attachments are disabled
+  useEffect(() => {
+    if (mode === 'policy' || !allowAttachments) {
+      setFiles([])
+      setUploadError(null)
+      setShowCamera(false)
+    }
+  }, [mode, allowAttachments])
+
   const handleSend = () => {
     if (!message.trim() && files.length === 0) return
 
-    onSendMessage(message, files)
+    onSendMessage(message, mode === 'claim' && allowAttachments ? files : [])
     setMessage('')
     setFiles([])
   }
@@ -151,9 +161,9 @@ export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) 
       )}
 
       <div className="border-t border-black/10 dark:border-white/10 bg-white dark:bg-black">
-      <div className="max-w-4xl mx-auto p-4 space-y-3">
+        <div className="max-w-4xl mx-auto p-4 space-y-3">
         {/* Upload Loading State */}
-        {isUploading && (
+        {allowAttachments && isUploading && (
           <div className="flex items-center gap-2 px-2 py-1 text-sm text-black/60 dark:text-white/60">
             <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />
             <span>Uploading files...</span>
@@ -161,14 +171,14 @@ export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) 
         )}
 
         {/* Upload Error */}
-        {uploadError && (
+        {allowAttachments && uploadError && (
           <div className="px-2 py-1 text-sm text-red-600 dark:text-red-400">
             {uploadError}
           </div>
         )}
 
         {/* File Previews */}
-        {files.length > 0 && (
+        {allowAttachments && files.length > 0 && (
           <div className="flex flex-wrap gap-2 px-2">
             {files.map((file, index) => (
               <FilePreview
@@ -182,38 +192,40 @@ export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) 
 
         {/* Input Area */}
         <div className="flex items-end gap-3">
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,.pdf"
-            className="hidden"
-            onChange={handleFileSelect}
-          />
+          {allowAttachments && mode === 'claim' && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-            className="shrink-0 h-11 w-11 rounded-xl"
-          >
-            <Paperclip className="h-5 w-5" />
-          </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="shrink-0 h-11 w-11 rounded-xl"
+              >
+                <Paperclip className="h-5 w-5" />
+              </Button>
 
-          {/* Camera button - only visible in claim mode */}
-          {mode === 'claim' && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowCamera(true)}
-              disabled={isUploading}
-              className="shrink-0 h-11 w-11 rounded-xl hover:bg-black/5 dark:hover:bg-white/5"
-            >
-              <Camera className="h-5 w-5 text-black/70 dark:text-white/70" />
-            </Button>
+              {/* Camera button - only visible in claim mode */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowCamera(true)}
+                disabled={isUploading}
+                className="shrink-0 h-11 w-11 rounded-xl hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <Camera className="h-5 w-5 text-black/70 dark:text-white/70" />
+              </Button>
+            </>
           )}
 
           <div className="flex-1 relative">
@@ -242,11 +254,11 @@ export function ChatInput({ mode, onSendMessage, isUploading }: ChatInputProps) 
           </Button>
         </div>
 
-        <p className="text-xs text-black/40 dark:text-white/40 text-center">
-          Press Enter to send, Shift + Enter for new line
-        </p>
+          <p className="text-xs text-black/40 dark:text-white/40 text-center">
+            Press Enter to send, Shift + Enter for new line
+          </p>
+        </div>
       </div>
-    </div>
     </>
   )
 }

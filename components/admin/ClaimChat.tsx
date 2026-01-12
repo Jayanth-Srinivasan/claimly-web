@@ -114,7 +114,11 @@ export function ClaimChat({ messages, mode, onSendMessage }: ClaimChatProps) {
       {/* Input Area - Fixed at Bottom */}
       <div className="shrink-0 border-t border-black/10 dark:border-white/10 bg-white dark:bg-black">
         <div className="p-4">
-          <ChatInput mode={mode === 'claimant' ? 'claim' : 'policy'} onSendMessage={onSendMessage} />
+          <ChatInput
+            mode={mode === 'claimant' ? 'claim' : 'policy'}
+            onSendMessage={onSendMessage}
+            allowAttachments={false}
+          />
         </div>
       </div>
     </div>
