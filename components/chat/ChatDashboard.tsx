@@ -284,6 +284,14 @@ export function ChatDashboard({ profile }: ChatDashboardProps) {
         return
       }
 
+      // If claim was just created, refresh session to get claim_id for uploads
+      if (mode === 'claim' && currentSessionId && !currentSession?.claim_id) {
+        const refreshed = await loadChatSessionAction(currentSessionId)
+        if (refreshed.success && refreshed.session) {
+          setCurrentSession(refreshed.session)
+        }
+      }
+
       // Create AI response message
       const aiMessage: Message = {
         id: response.data!.messageId,

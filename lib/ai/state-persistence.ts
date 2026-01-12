@@ -57,13 +57,16 @@ export class StatePersistenceService {
 
     const { error } = await this.supabase
       .from('claim_questioning_state')
-      .upsert({
-        claim_id: claimId,
-        database_questions_asked: state.database_questions_asked,
-        conversation_history: state.conversation_history,
-        current_focus: state.current_focus,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(
+        {
+          claim_id: claimId,
+          database_questions_asked: state.database_questions_asked,
+          conversation_history: state.conversation_history,
+          current_focus: state.current_focus,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'claim_id' }
+      )
 
     if (error) {
       if (this.isMissingTable(error)) {
@@ -94,11 +97,14 @@ export class StatePersistenceService {
 
     const { error } = await this.supabase
       .from('claim_questioning_state')
-      .upsert({
-        claim_id: claimId,
-        database_questions_asked: merged,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(
+        {
+          claim_id: claimId,
+          database_questions_asked: merged,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'claim_id' }
+      )
 
     if (error) {
       if (this.isMissingTable(error)) {
@@ -141,11 +147,14 @@ export class StatePersistenceService {
 
     const { error } = await this.supabase
       .from('claim_questioning_state')
-      .upsert({
-        claim_id: claimId,
-        conversation_history: limitedHistory,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(
+        {
+          claim_id: claimId,
+          conversation_history: limitedHistory,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'claim_id' }
+      )
 
     if (error) {
       if (this.isMissingTable(error)) {
@@ -165,11 +174,14 @@ export class StatePersistenceService {
 
     const { error } = await this.supabase
       .from('claim_questioning_state')
-      .upsert({
-        claim_id: claimId,
-        current_focus: focus || null,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(
+        {
+          claim_id: claimId,
+          current_focus: focus || null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'claim_id' }
+      )
 
     if (error) {
       if (this.isMissingTable(error)) {

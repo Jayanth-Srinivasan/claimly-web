@@ -243,7 +243,9 @@ export class AdaptiveQuestioningEngine {
     }
 
     const normalize = (val?: string) => (val || '').trim().toLowerCase()
-    const isRepeat = normalize(generated) === normalize(lastAssistantMessage)
+    const isRepeat =
+      normalize(generated) === normalize(lastAssistantMessage) ||
+      this.isDuplicateQuestion(generated, state.conversation_history)
 
     if (isRepeat) {
       const fallbackField =
@@ -265,6 +267,52 @@ export class AdaptiveQuestioningEngine {
         content: generated
       })
     }
+  }
+
+  /**
+   * Detects if a generated question is a duplicate of prior assistant questions
+   * using normalized text and keyword overlap.
+   */
+  private isDuplicateQuestion(generated: string, history: ConversationTurn[]): boolean {
+    if (!generated) return false
+
+    const normalize = (text: string) =>
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    const toKeywords = (text: string) => {
+      const stop = new Set([
+        'the','a','an','of','for','to','in','on','at','is','it','this','that','please','could','would','you','your',
+        'what','which','when','where','how','why','do','does','did','can','we','i','me','my','us','our'
+      ])
+      return normalize(text)
+        .split(' ')
+        .filter(w => w.length > 2 && !stop.has(w))
+    }
+
+    const genNorm = normalize(generated)
+    const genKeywords = toKeywords(generated)
+
+    for (const turn of history) {
+      if (turn.role !== 'assistant' || !turn.content) continue
+
+      const histNorm = normalize(turn.content)
+      if (genNorm === histNorm) return true
+
+      const histKeywords = toKeywords(turn.content)
+      if (histKeywords.length === 0 || genKeywords.length === 0) continue
+
+      const overlap = histKeywords.filter(k => genKeywords.includes(k))
+      const overlapRatio = overlap.length / Math.max(genKeywords.length, histKeywords.length)
+      if (overlapRatio >= 0.6) {
+        return true
+      }
+    }
+
+    return false
   }
 
   /**

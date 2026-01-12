@@ -178,6 +178,12 @@ Return a JSON object with:
       return
     }
 
+    // Link chat session to claim for downstream lookups (uploads, resume)
+    await this.supabase
+      .from('chat_sessions')
+      .update({ claim_id: claim.id })
+      .eq('id', sessionId)
+
     // Link coverage types to claim (if you have a junction table)
     // For now, we'll store in claim metadata or handle differently
 
@@ -681,7 +687,7 @@ Return a JSON object with:
           {
             role: 'system',
             content:
-              'Estimate the claimed monetary amount (numeric, USD) from the incident description. If unsure, return a conservative high-end estimate. Respond as {"amount": number}.',
+              'Return ONLY a json object with {"amount": number}. Estimate the claimed monetary amount in USD from the incident description. If unsure, give a conservative high-end estimate. Do not return prose.',
           },
           { role: 'user', content: incidentDescription },
         ],
