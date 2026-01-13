@@ -11,15 +11,38 @@ export async function getQuestionsByCoverageType(
   coverageTypeId: string
 ): Promise<Question[]> {
   const supabase = await createClient()
+  
+  // Log for debugging
+  console.log(`[getQuestionsByCoverageType] Starting query for coverage_type_id: ${coverageTypeId}`)
+  
+  // Check authentication
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  console.log(`[getQuestionsByCoverageType] Auth check - User: ${user?.id || 'NOT AUTHENTICATED'}, Auth Error: ${authError?.message || 'none'}`)
+  
   const { data, error } = await supabase
     .from('questions')
     .select('*')
     .eq('coverage_type_id', coverageTypeId)
     .order('order_index', { ascending: true })
 
+  // Enhanced logging
   if (error) {
+    console.error(`[getQuestionsByCoverageType] ERROR for coverage_type_id ${coverageTypeId}:`, {
+      error: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      authError: authError?.message
+    })
     throw new Error(`Failed to fetch questions for coverage type ${coverageTypeId}: ${error.message}`)
   }
+
+  console.log(`[getQuestionsByCoverageType] Query result for coverage_type_id ${coverageTypeId}:`, {
+    questionsFound: data?.length || 0,
+    questionIds: data?.map(q => q.id) || [],
+    firstQuestion: data?.[0]?.question_text || 'none',
+    isAuthenticated: !!user
+  })
 
   return (data || []) as Question[]
 }

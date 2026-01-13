@@ -173,3 +173,147 @@ export async function getUserPolicy(id: string): Promise<UserPolicy | null> {
   if (error) return null
   return data as UserPolicy
 }
+
+/**
+ * Get user policies with their coverage types
+ * Returns active policies with all coverage types they cover
+ */
+export async function getUserPoliciesWithCoverageTypes(
+  userId: string
+): Promise<
+  Array<
+    UserPolicy & {
+      coverage_types: Array<{
+        coverage_type_id: string
+        coverage_type_name: string
+        coverage_limit: number | null
+        deductible: number | null
+      }>
+    }
+  >
+> {
+  const supabase = await createClient()
+
+  // Get active user policies
+  const { data: policies, error: policiesError } = await supabase
+    .from('user_policies')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('is_active', true)
+    .eq('status', 'active')
+    .order('enrolled_at', { ascending: false })
+
+  if (policiesError) {
+    throw new Error(`Failed to fetch user policies: ${policiesError.message}`)
+  }
+
+  if (!policies || policies.length === 0) {
+    return []
+  }
+
+  // Get all coverage types for name matching (for legacy coverage_items)
+  const { getCoverageTypes } = await import('@/lib/supabase/coverage-types')
+  const allCoverageTypes = await getCoverageTypes()
+
+  // For each policy, get its coverage types
+  const policiesWithCoverageTypes = await Promise.all(
+    (policies as UserPolicy[]).map(async (policy) => {
+      const coverage_types: Array<{
+        coverage_type_id: string
+        coverage_type_name: string
+        coverage_limit: number | null
+        deductible: number | null
+      }> = []
+
+      // Method 1: Check policy_coverage_types table (new structure)
+      // This table links policies to coverage_types with specific limits
+      const { data: coverageTypesData, error: coverageError } = await supabase
+        .from('policy_coverage_types')
+        .select(
+          `
+          coverage_type_id,
+          coverage_limit,
+          deductible,
+          coverage_type:coverage_types (
+            id,
+            name
+          )
+        `
+        )
+        .eq('policy_id', policy.policy_id)
+
+      if (!coverageError && coverageTypesData && coverageTypesData.length > 0) {
+        for (const ct of coverageTypesData) {
+          const coverageType = ct as {
+            coverage_type_id: string
+            coverage_limit: number | null
+            deductible: number | null
+            coverage_type: { id: string; name: string } | null
+          }
+          coverage_types.push({
+            coverage_type_id: coverageType.coverage_type_id,
+            coverage_type_name: coverageType.coverage_type?.name || 'Unknown',
+            coverage_limit: coverageType.coverage_limit,
+            deductible: coverageType.deductible,
+          })
+        }
+      }
+
+      // Method 2: Check coverage_items (legacy structure) - used when policy_coverage_types is empty
+      // coverage_items is a JSONB array: [{"name":"Baggage Loss","total_limit":4000,"used_limit":0,"currency":"USD"}]
+      if (coverage_types.length === 0 && policy.coverage_items && Array.isArray(policy.coverage_items) && policy.coverage_items.length > 0) {
+        const coverageItems = policy.coverage_items as Array<{
+          name: string
+          total_limit?: number
+          used_limit?: number
+          currency?: string
+        }>
+        
+        for (const item of coverageItems) {
+          // Try to find matching coverage type by name (case-insensitive)
+          const normalizedItemName = item.name.toLowerCase().trim()
+          
+          const matchingCoverageType = allCoverageTypes.find((ct) => {
+            const normalizedCtName = ct.name.toLowerCase().trim()
+            // Exact match (preferred) or contains match
+            return normalizedCtName === normalizedItemName || 
+                   normalizedCtName.includes(normalizedItemName) ||
+                   normalizedItemName.includes(normalizedCtName)
+          })
+
+          if (matchingCoverageType) {
+            // Check if we already added this coverage type
+            const alreadyAdded = coverage_types.some(
+              (ct) => ct.coverage_type_id === matchingCoverageType.id
+            )
+            
+            if (!alreadyAdded) {
+              coverage_types.push({
+                coverage_type_id: matchingCoverageType.id,
+                coverage_type_name: matchingCoverageType.name,
+                coverage_limit: item.total_limit || null,
+                deductible: null, // Legacy coverage_items don't have deductible
+              })
+            }
+          }
+        }
+      }
+
+      return {
+        ...policy,
+        coverage_types,
+      }
+    })
+  )
+
+  return policiesWithCoverageTypes as Array<
+    UserPolicy & {
+      coverage_types: Array<{
+        coverage_type_id: string
+        coverage_type_name: string
+        coverage_limit: number | null
+        deductible: number | null
+      }>
+    }
+  >
+}

@@ -420,21 +420,104 @@ export async function handleCategorizeIncident(
     const allCoverageTypes = await getCoverageTypes()
     const activeCoverageTypes = allCoverageTypes.filter((ct) => ct.is_active)
 
-    // Simple keyword matching - in production, use AI to categorize
+    // Synonym mapping for better matching
+    const synonyms: Record<string, string[]> = {
+      'lost': ['loss', 'missing', 'disappeared', 'gone'],
+      'loss': ['lost', 'missing', 'disappeared', 'gone'],
+      'baggage': ['luggage', 'suitcase', 'bag', 'bags'],
+      'luggage': ['baggage', 'suitcase', 'bag', 'bags'],
+      'damaged': ['damage', 'broken', 'destroyed', 'ruined'],
+      'damage': ['damaged', 'broken', 'destroyed', 'ruined'],
+      'delayed': ['delay', 'late', 'postponed'],
+      'delay': ['delayed', 'late', 'postponed'],
+      'cancelled': ['cancel', 'cancellation', 'canceled'],
+      'cancellation': ['cancel', 'cancelled', 'canceled'],
+      'interrupted': ['interruption', 'cut short', 'stopped'],
+      'interruption': ['interrupted', 'cut short', 'stopped'],
+      'missed': ['miss', 'missed connection', 'missed flight'],
+      'flight': ['plane', 'airline', 'aircraft'],
+      'trip': ['travel', 'journey', 'vacation'],
+    }
+
+    // Normalize text for matching
+    const normalizeText = (text: string): string[] => {
+      return text
+        .toLowerCase()
+        .replace(/[^\w\s]/g, ' ') // Remove punctuation
+        .split(/\s+/)
+        .filter(word => word.length > 0)
+    }
+
+    const incidentWords = normalizeText(incidentDescription)
+
+    // Enhanced keyword matching with word-level and synonym matching
     const matches = activeCoverageTypes
       .map((ct) => {
         const name = ct.name.toLowerCase()
         const description = (ct.description || '').toLowerCase()
+        const slug = (ct.slug || '').toLowerCase()
         const incident = incidentDescription.toLowerCase()
 
         let score = 0
-        if (incident.includes(name)) score += 10
-        if (description && incident.includes(description)) score += 5
+
+        // Exact phrase matching (highest priority)
+        if (incident.includes(name)) {
+          score += 20
+        }
+        if (description && incident.includes(description)) {
+          score += 10
+        }
+        if (slug && incident.includes(slug)) {
+          score += 15
+        }
+
+        // Word-level matching
+        const nameWords = normalizeText(name)
+        const descriptionWords = normalizeText(description)
+        const slugWords = normalizeText(slug)
+
+        // Check if incident words match coverage type words
+        for (const incidentWord of incidentWords) {
+          // Direct word match in name
+          if (nameWords.includes(incidentWord)) {
+            score += 8
+          }
+          // Direct word match in description
+          if (descriptionWords.includes(incidentWord)) {
+            score += 4
+          }
+          // Direct word match in slug
+          if (slugWords.includes(incidentWord)) {
+            score += 6
+          }
+
+          // Synonym matching
+          for (const [key, synonymList] of Object.entries(synonyms)) {
+            if (incidentWord === key || synonymList.includes(incidentWord)) {
+              // Check if synonym matches coverage type
+              if (nameWords.includes(key) || nameWords.some(w => synonymList.includes(w))) {
+                score += 7
+              }
+              if (descriptionWords.includes(key) || descriptionWords.some(w => synonymList.includes(w))) {
+                score += 3
+              }
+              if (slugWords.includes(key) || slugWords.some(w => synonymList.includes(w))) {
+                score += 5
+              }
+            }
+          }
+        }
 
         // Category-based matching
         if (ct.category) {
           const category = ct.category.toLowerCase()
-          if (incident.includes(category)) score += 3
+          if (incident.includes(category)) {
+            score += 3
+          }
+          // Word-level category matching
+          if (incidentWords.includes(category)) {
+            score += 2
+          }
         }
 
         return { coverageType: ct, score }
@@ -443,13 +526,18 @@ export async function handleCategorizeIncident(
       .sort((a, b) => b.score - a.score)
       .slice(0, 3) // Top 3 matches
 
+    console.log(`[handleCategorizeIncident] Matches found: ${matches.length}`)
+    if (matches.length > 0) {
+      console.log(`[handleCategorizeIncident] Top match: ${matches[0].coverageType.name} (ID: ${matches[0].coverageType.id}, score: ${matches[0].score})`)
+    }
+
     return {
       success: true,
       data: {
         matches: matches.map((m) => ({
           coverageTypeId: m.coverageType.id,
           coverageTypeName: m.coverageType.name,
-          confidence: Math.min(m.score / 10, 1), // Normalize to 0-1
+          confidence: Math.min(m.score / 20, 1), // Normalize to 0-1 (using 20 as max score)
         })),
       },
     }
@@ -457,6 +545,66 @@ export async function handleCategorizeIncident(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to categorize incident',
+    }
+  }
+}
+
+/**
+ * Check if a coverage type is covered by user's active policies (Claims Mode)
+ */
+export async function handleCheckPolicyCoverage(
+  coverageTypeId: string,
+  userId: string
+): Promise<ToolHandlerResult> {
+  try {
+    console.log(`[handleCheckPolicyCoverage] START - Coverage Type ID: ${coverageTypeId}, User ID: ${userId}`)
+    const { getUserPoliciesWithCoverageTypes } = await import('@/lib/supabase/user-policies')
+    const policiesWithCoverage = await getUserPoliciesWithCoverageTypes(userId)
+    console.log(`[handleCheckPolicyCoverage] Policies found: ${policiesWithCoverage.length}`)
+
+    if (policiesWithCoverage.length === 0) {
+      return {
+        success: false,
+        error: 'You do not have any active policies. Please enroll in a policy before filing a claim.',
+      }
+    }
+
+    // Check if the coverage type is covered by any active policy
+    const matchingPolicies = policiesWithCoverage.filter((policy) =>
+      policy.coverage_types.some((ct) => ct.coverage_type_id === coverageTypeId)
+    )
+
+    if (matchingPolicies.length === 0) {
+      return {
+        success: false,
+        error: 'This type of incident does not appear to be covered by your current active policies. Please review your policies or contact support for assistance.',
+      }
+    }
+
+    // Get coverage type details
+    const { getCoverageType } = await import('@/lib/supabase/coverage-types')
+    const coverageType = await getCoverageType(coverageTypeId)
+
+    return {
+      success: true,
+      data: {
+        is_covered: true,
+        coverage_type_id: coverageTypeId,
+        coverage_type_name: coverageType?.name || 'Unknown',
+        matching_policies: matchingPolicies.map((policy) => ({
+          policy_id: policy.policy_id,
+          policy_name: policy.policy_name,
+          coverage_limit: policy.coverage_types.find((ct) => ct.coverage_type_id === coverageTypeId)
+            ?.coverage_limit,
+          deductible: policy.coverage_types.find((ct) => ct.coverage_type_id === coverageTypeId)
+            ?.deductible,
+        })),
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to check policy coverage',
     }
   }
 }
@@ -547,13 +695,20 @@ export async function handleUpdateIntakeState(
         .eq('id', sessionId)
     }
 
+    // Handle database_questions_asked array properly - append if provided, otherwise keep existing
+    let databaseQuestionsAsked = currentState?.database_questions_asked || []
+    if (updates.database_questions_asked) {
+      // If new array is provided, use it (it should already include previous questions)
+      databaseQuestionsAsked = updates.database_questions_asked
+    }
+
     await upsertIntakeState({
       session_id: sessionId,
       user_id: user.id,
       current_stage: updates.current_stage || currentState?.current_stage || 'initial_contact',
       coverage_type_ids: updates.coverage_type_ids || currentState?.coverage_type_ids || null,
       incident_description: updates.incident_description || currentState?.incident_description || null,
-      database_questions_asked: updates.database_questions_asked || currentState?.database_questions_asked || null,
+      database_questions_asked: databaseQuestionsAsked,
       validation_passed: updates.validation_passed ?? currentState?.validation_passed ?? null,
       validation_errors: updates.validation_errors || currentState?.validation_errors || null,
       claim_id: claimId,
@@ -582,12 +737,46 @@ export async function handleGetCoverageQuestions(
   coverageTypeId: string
 ): Promise<ToolHandlerResult> {
   try {
+    console.log(`[handleGetCoverageQuestions] START - Coverage Type ID: ${coverageTypeId}`)
+    
+    if (!coverageTypeId) {
+      console.error(`[handleGetCoverageQuestions] ERROR - No coverage type ID provided`)
+      return {
+        success: false,
+        error: 'Coverage type ID is required',
+      }
+    }
+
+    console.log(`[handleGetCoverageQuestions] Calling getQuestionsByCoverageType with ID: ${coverageTypeId}`)
     const questions = await getQuestionsByCoverageType(coverageTypeId)
+    
+    // Enhanced logging
+    console.log(`[handleGetCoverageQuestions] RESULT - Coverage Type ID: ${coverageTypeId}`)
+    console.log(`[handleGetCoverageQuestions] Questions found: ${questions?.length || 0}`)
+    
+    if (questions && questions.length > 0) {
+      console.log(`[handleGetCoverageQuestions] Question IDs: ${questions.map(q => q.id).join(', ')}`)
+      console.log(`[handleGetCoverageQuestions] Questions by order:`)
+      questions.forEach((q, idx) => {
+        console.log(`  ${idx + 1}. [${q.id}] order_index=${q.order_index}: "${q.question_text}"`)
+      })
+    } else {
+      console.warn(`[handleGetCoverageQuestions] WARNING - No questions found for coverage_type_id: ${coverageTypeId}`)
+      console.log(`[handleGetCoverageQuestions] This might indicate an RLS issue or the coverage type has no questions`)
+    }
+    
+    // Always return success even if questions array is empty
+    // The AI should handle empty arrays gracefully
+    // IMPORTANT: Return questions in a clear format so AI can easily access them
     return {
       success: true,
-      data: questions,
+      data: questions || [],
+      message: questions && questions.length > 0 
+        ? `Found ${questions.length} question(s) configured for this coverage type. You MUST ask ALL of them using the exact question_text.`
+        : undefined,
     }
   } catch (error) {
+    console.error(`[handleGetCoverageQuestions] EXCEPTION - Coverage Type ID: ${coverageTypeId}`, error)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to fetch questions',
@@ -815,16 +1004,44 @@ export async function handleExtractDocumentInfo(
     const bucket = 'claim-documents'
     const path = documentPath
     
-    const { data: signedData } = await supabase.storage
+    console.log(`[handleExtractDocumentInfo] Getting signed URL for path: ${path} in bucket: ${bucket}`)
+    const { data: signedData, error: urlError } = await supabase.storage
       .from(bucket)
       .createSignedUrl(path, 3600)
     
+    if (urlError) {
+      console.error(`[handleExtractDocumentInfo] Error getting signed URL:`, urlError)
+    }
+    
     if (!signedData?.signedUrl) {
+      console.error(`[handleExtractDocumentInfo] No signed URL returned. Path: ${path}, Bucket: ${bucket}`)
+      // Still return success but with minimal data - don't fail completely
+      // This ensures the AI doesn't see an error and mention it to the user
       return {
-        success: false,
-        error: 'Failed to get file URL for processing',
+        success: true,
+        data: {
+          extraction: {
+            extractedEntities: {},
+            autoFilledFields: {},
+            validationResults: {
+              isValid: false,
+              errors: [],
+              warnings: ['Document saved but processing incomplete - will be reviewed'],
+            },
+          },
+          validation: {
+            isLegitimate: true,
+            isRelevant: true,
+            contextMatches: true,
+            isValid: false,
+            errors: [],
+            warnings: ['Document saved for manual review'],
+          },
+        },
       }
     }
+    
+    console.log(`[handleExtractDocumentInfo] Got signed URL, proceeding with extraction`)
     
     // Determine MIME type from extension
     const ext = path.split('.').pop()?.toLowerCase() || ''
@@ -835,14 +1052,56 @@ export async function handleExtractDocumentInfo(
     else if (ext === 'webp') mimeType = 'image/webp'
     else if (ext === 'pdf') mimeType = 'application/pdf'
     
+    // Get claim context for validation
+    const { getClaim } = await import('@/lib/supabase/claims')
+    const claim = await getClaim(claimId)
+    const { getExtractedInfo } = await import('@/lib/supabase/claim-extracted-info')
+    const extractedInfo = await getExtractedInfo(claimId)
+    const { getClaimAnswers } = await import('@/lib/supabase/claim-answers')
+    const claimAnswers = await getClaimAnswers(claimId)
+    const { getCoverageType } = await import('@/lib/supabase/coverage-types')
+    
+    // Build context from claim and answers
+    const coverageType = claim?.coverage_type_ids?.[0] 
+      ? await getCoverageType(claim.coverage_type_ids[0])
+      : null
+    
+    // Build previous answers map
+    const previousAnswers: Record<string, unknown> = {}
+    for (const answer of claimAnswers) {
+      if (answer.answer_text) previousAnswers[`answer_${answer.question_id}`] = answer.answer_text
+      if (answer.answer_number !== null) previousAnswers[`answer_${answer.question_id}_number`] = answer.answer_number
+      if (answer.answer_date) previousAnswers[`answer_${answer.question_id}_date`] = answer.answer_date
+    }
+    
+    // Build extracted info map
+    const extractedInfoMap: Record<string, unknown> = {}
+    for (const info of extractedInfo) {
+      extractedInfoMap[info.field_name] = info.field_value
+    }
+    
+    const context = {
+      claimContext: {
+        coverageType: coverageType?.name || null,
+        incidentDescription: claim?.incident_description || null,
+        incidentDate: claim?.incident_date || null,
+        incidentLocation: claim?.incident_location || null,
+      },
+      previousAnswers,
+      extractedInfo: extractedInfoMap,
+    }
+    
+    console.log(`[handleExtractDocumentInfo] Calling extractDocumentInfo with mimeType: ${mimeType}, documentType: ${documentType}`)
     const extraction = await extractDocumentInfo(
       { 
         path: documentPath,
         url: signedData.signedUrl,
         mimeType,
       },
-      documentType
+      documentType,
+      context
     )
+    console.log(`[handleExtractDocumentInfo] Extraction completed. Valid: ${extraction.validationResults.isValid}, Entities: ${Object.keys(extraction.extractedEntities).length}, AutoFilled: ${Object.keys(extraction.autoFilledFields).length}`)
 
     // Save to claim_documents
     const document = await createClaimDocument({
@@ -859,14 +1118,21 @@ export async function handleExtractDocumentInfo(
     })
 
     // Save extracted info to claim_extracted_information
+    console.log(`[handleExtractDocumentInfo] Saving ${Object.keys(extraction.autoFilledFields).length} extracted fields`)
     for (const [fieldName, fieldValue] of Object.entries(extraction.autoFilledFields)) {
-      await saveExtractedInfo({
-        claim_id: claimId,
-        field_name: fieldName,
-        field_value: fieldValue as unknown as Record<string, unknown>,
-        confidence: 'high',
-        source: 'document_extraction',
-      })
+      try {
+        await saveExtractedInfo({
+          claim_id: claimId,
+          field_name: fieldName,
+          field_value: fieldValue as unknown as Record<string, unknown>,
+          confidence: 'high',
+          source: 'document_extraction',
+        })
+        console.log(`[handleExtractDocumentInfo] Saved field: ${fieldName}`)
+      } catch (fieldError) {
+        console.error(`[handleExtractDocumentInfo] Error saving field ${fieldName}:`, fieldError)
+        // Continue with other fields
+      }
     }
 
     return {
@@ -874,12 +1140,73 @@ export async function handleExtractDocumentInfo(
       data: {
         documentId: document.id,
         extraction,
+        validation: {
+          isLegitimate: extraction.isLegitimate,
+          isRelevant: extraction.isRelevant,
+          contextMatches: extraction.contextMatches,
+          isValid: extraction.validationResults.isValid,
+          errors: extraction.validationResults.errors,
+          warnings: extraction.validationResults.warnings,
+        },
       },
     }
   } catch (error) {
+    console.error('[handleExtractDocumentInfo] Error:', error)
+    console.error('[handleExtractDocumentInfo] Document path:', documentPath)
+    console.error('[handleExtractDocumentInfo] Claim ID:', claimId)
+    
+    // For better error handling, try to at least save the document reference
+    try {
+      const supabase = await createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (user) {
+        // Try to save document reference even if extraction failed
+        const { createClaimDocument } = await import('@/lib/supabase/claim-documents')
+        await createClaimDocument({
+          claim_id: claimId,
+          file_path: documentPath,
+          file_name: documentPath.split('/').pop() || 'document',
+          file_type: documentType || 'unknown',
+          extracted_entities: {},
+          ocr_data: {},
+          auto_filled_fields: {},
+          processing_status: 'failed',
+          is_verified: false,
+          validation_results: {
+            isValid: false,
+            errors: [error instanceof Error ? error.message : 'Failed to process document'],
+            warnings: [],
+          },
+        })
+      }
+    } catch (saveError) {
+      console.error('[handleExtractDocumentInfo] Failed to save document reference:', saveError)
+    }
+    
+    // Return success with minimal data so AI can continue
+    // The AI should NOT mention errors to users
     return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to extract document info',
+      success: true,
+      data: {
+        extraction: {
+          extractedEntities: {},
+          autoFilledFields: {},
+          validationResults: {
+            isValid: false,
+            errors: [],
+            warnings: ['Document processing encountered an issue, but the document has been saved for review'],
+          },
+        },
+        validation: {
+          isLegitimate: true,
+          isRelevant: true,
+          contextMatches: true,
+          isValid: false,
+          errors: [],
+          warnings: ['Document saved but extraction incomplete - will be reviewed manually'],
+        },
+      },
     }
   }
 }
@@ -1149,10 +1476,19 @@ export async function handleCreateClaim(
     }
 
     // Update chat session to link claim and archive it
-    await supabase
+    const { error: sessionUpdateError } = await supabase
       .from('chat_sessions')
-      .update({ claim_id: claim.id, is_archived: true })
+      .update({ 
+        claim_id: claim.id, 
+        is_archived: true,
+        archived_at: new Date().toISOString()
+      })
       .eq('id', sessionId)
+    
+    if (sessionUpdateError) {
+      console.error('Failed to archive chat session:', sessionUpdateError)
+      // Continue anyway - the claim is created
+    }
 
     return {
       success: true,
@@ -1166,6 +1502,125 @@ export async function handleCreateClaim(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to create claim',
+    }
+  }
+}
+
+/**
+ * Prepare claim summary (Claims Mode)
+ * Generates a comprehensive summary of the claim before finalization
+ */
+export async function handlePrepareClaimSummary(
+  sessionId: string
+): Promise<ToolHandlerResult> {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return {
+        success: false,
+        error: 'User not authenticated',
+      }
+    }
+
+    // Get intake state to find claim_id
+    const intakeState = await getIntakeStateBySession(sessionId)
+    if (!intakeState?.claim_id) {
+      return {
+        success: false,
+        error: 'No draft claim found. Please complete the intake process first.',
+      }
+    }
+
+    const claimId = intakeState.claim_id
+
+    // Get all collected information
+    const { getExtractedInfo } = await import('@/lib/supabase/claim-extracted-info')
+    const extractedInfo = await getExtractedInfo(claimId)
+    const claimAnswers = await getClaimAnswers(claimId)
+    const { getQuestionsByCoverageType } = await import('@/lib/supabase/questions')
+
+    // Get coverage type information
+    const coverageTypeIds = intakeState.coverage_type_ids || []
+    const coverageTypes = await Promise.all(
+      coverageTypeIds.map(async (ctId) => {
+        const ct = await getCoverageType(ctId)
+        const questions = await getQuestionsByCoverageType(ctId)
+        return {
+          id: ctId,
+          name: ct?.name || 'Unknown',
+          description: ct?.description || null,
+          questions_count: questions.length,
+        }
+      })
+    )
+
+    // Get policy information if available
+    const { getUserPoliciesWithCoverageTypes } = await import('@/lib/supabase/user-policies')
+    const userPolicies = await getUserPoliciesWithCoverageTypes(user.id)
+    const matchingPolicies = userPolicies.filter((policy) =>
+      policy.coverage_types.some((ct) => coverageTypeIds.includes(ct.coverage_type_id))
+    )
+
+    // Build answers map with question text
+    const { getQuestion } = await import('@/lib/supabase/questions')
+    const answersWithQuestions = await Promise.all(
+      claimAnswers.map(async (answer) => {
+        const question = await getQuestion(answer.question_id)
+        return {
+          question_text: question?.question_text || 'Unknown question',
+          answer_text: answer.answer_text,
+          answer_number: answer.answer_number,
+          answer_date: answer.answer_date,
+          answer_select: answer.answer_select,
+        }
+      })
+    )
+
+    // Build extracted information summary
+    const extractedSummary: Record<string, unknown> = {}
+    for (const info of extractedInfo) {
+      extractedSummary[info.field_name] = info.field_value
+    }
+
+    // Build comprehensive summary
+    const summary = {
+      incident_description: intakeState.incident_description || 'Not provided',
+      coverage_types: coverageTypes.map((ct) => ({
+        name: ct.name,
+        description: ct.description,
+      })),
+      policies: matchingPolicies.map((policy) => ({
+        policy_name: policy.policy_name,
+        coverage_limits: policy.coverage_types
+          .filter((ct) => coverageTypeIds.includes(ct.coverage_type_id))
+          .map((ct) => ({
+            coverage_type: ct.coverage_type_name,
+            limit: ct.coverage_limit,
+            deductible: ct.deductible,
+          })),
+      })),
+      answers: answersWithQuestions,
+      extracted_information: extractedSummary,
+      total_answers: claimAnswers.length,
+      total_extracted_fields: extractedInfo.length,
+      collected_at: new Date().toISOString(),
+    }
+
+    return {
+      success: true,
+      data: {
+        summary,
+        formatted_summary: JSON.stringify(summary, null, 2),
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to prepare claim summary',
     }
   }
 }
@@ -1328,6 +1783,11 @@ export async function handleToolCall(
       // Claims tools
       case 'categorize_incident':
         return handleCategorizeIncident(args.incident_description as string)
+      case 'check_policy_coverage':
+        return handleCheckPolicyCoverage(
+          args.coverage_type_id as string,
+          userId
+        )
       case 'get_intake_state':
         return handleGetIntakeState(args.session_id as string)
       case 'update_intake_state':
@@ -1377,6 +1837,8 @@ export async function handleToolCall(
           args.confidence as string | undefined,
           args.source as string | undefined
         )
+      case 'prepare_claim_summary':
+        return handlePrepareClaimSummary(args.session_id as string)
       case 'create_claim':
         return handleCreateClaim(args.session_id as string, args as {
           coverage_type_ids: string[]

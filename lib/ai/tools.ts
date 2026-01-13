@@ -119,6 +119,23 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'check_policy_coverage',
+      description: 'Check if a coverage type is covered by the user\'s active policies. MANDATORY: Call this AFTER categorizing incident to verify the user has coverage. If is_covered is false, gracefully inform the user and do NOT proceed with the claim.',
+      parameters: {
+        type: 'object',
+        properties: {
+          coverage_type_id: {
+            type: 'string',
+            description: 'The coverage type ID to check coverage for',
+          },
+        },
+        required: ['coverage_type_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_intake_state',
       description: 'Get the current claim intake state for the session. Returns current stage, questions asked, validation status, and other progress information. ALWAYS call this first when starting a new claim or checking progress. The session_id is automatically provided by the system.',
       parameters: {
@@ -189,7 +206,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_coverage_questions',
-      description: 'Get all questions configured for a coverage type. Returns questions ordered by order_index, including field types and validation rules. MANDATORY: Use this to get ALL questions from the database that you must ask the user. Do not invent questions - use only the questions returned by this tool.',
+      description: 'Get all questions configured for a coverage type. Returns questions ordered by order_index, including field types and validation rules. **ABSOLUTELY MANDATORY**: After policy check passes, you MUST call this tool IMMEDIATELY. **CRITICAL**: The response has a `data` field which is an array. **IF data array has questions (length > 0)**: These ARE the configured questions - you MUST use them EXACTLY and ask ALL of them. **ABSOLUTELY FORBIDDEN**: Do NOT say "no specific database questions configured" or "no questions configured" - if data array has questions, they ARE configured. If data array is empty (length === 0), proceed with adaptive questioning but DO NOT say "no questions configured". You MUST ask ONLY these database questions if they exist - NEVER ask generic questions like "when did it happen" or "how much". **ABSOLUTELY CRITICAL**: Use the EXACT question_text character-for-character from the returned questions - copy it exactly, do not modify, rephrase, or paraphrase. You must ask ALL questions from this tool before proceeding to documents or finalization.',
       parameters: {
         type: 'object',
         properties: {
@@ -240,7 +257,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'save_answer',
-      description: 'Save an answer to a question. Stores the answer and evaluates it against rules. If no claim exists yet, use the session_id as claim_id - the system will create a draft claim automatically.',
+      description: 'Save an answer to a question. **MANDATORY**: Call this IMMEDIATELY after user answers each database question. Stores the answer and evaluates it against rules. Use session_id as claim_id - the system will resolve it to the actual claim_id. After saving, you MUST call validate_answers to check rules.',
       parameters: {
         type: 'object',
         properties: {
@@ -282,7 +299,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'validate_answers',
-      description: 'Validate all collected answers against configured rules for the coverage type. Returns validation results including errors and warnings.',
+      description: 'Validate all collected answers against configured rules for the coverage type. **MANDATORY**: Call this IMMEDIATELY after each save_answer. Returns validation results including errors and warnings. If errors exist, present them to user and ask for corrections before proceeding.',
       parameters: {
         type: 'object',
         properties: {
@@ -357,6 +374,23 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
         },
         required: ['claim_id', 'field_name', 'field_value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'prepare_claim_summary',
+      description: 'Generate a comprehensive summary of the claim before finalization. Collects all answers, extracted information, coverage types, and policy information. Returns a formatted summary that should be presented to the user for confirmation before creating the claim. **MANDATORY**: Call this BEFORE create_claim and display the ENTIRE summary to the user. The summary MUST include: incident description, coverage types, all answers to questions, all extracted information, and policy details. You MUST present this summary clearly to the user before asking for confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          session_id: {
+            type: 'string',
+            description: 'The chat session ID',
+          },
+        },
+        required: ['session_id'],
       },
     },
   },
