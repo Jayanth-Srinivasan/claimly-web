@@ -119,7 +119,7 @@ EXTRACTED INFO: ${JSON.stringify(context.extractedInfo || {}, null, 2)}
 ` : ''
 
     const response = await client.chat.completions.create({
-      model: 'gpt-4o', // GPT-4o supports vision
+      model: 'gpt-5', // GPT-5 supports vision with maximum performance and enhanced capabilities
       messages: [
         {
           role: 'system',
@@ -174,7 +174,7 @@ Respond in JSON format with: {
           content: messageContent as unknown as string, // OpenAI handles array format
         },
       ],
-      temperature: 0.2,
+      // Note: GPT-5 only supports default temperature (1), custom values are not supported
       response_format: { type: 'json_object' },
     })
 

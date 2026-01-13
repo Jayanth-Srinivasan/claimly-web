@@ -441,12 +441,12 @@ export async function chatCompletion(
     }
   })
 
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o', // Using GPT-4o for better tool calling and vision support
+  const response = await client.chat.completions.create({ 
+    model: 'gpt-5', // Using GPT-5 for maximum performance and enhanced capabilities (supports tool calling and vision)
     messages: openAIMessages,
     tools: tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
     tool_choice: toolChoice === 'auto' ? 'auto' : toolChoice === 'none' ? 'none' : toolChoice,
-    temperature: 0.7,
+    // Note: GPT-5 only supports default temperature (1), custom values are not supported
   })
 
   return response
@@ -473,11 +473,11 @@ export async function streamChatCompletion(
   }>
 ) {
   const stream = await client.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-5', // Using GPT-5 for maximum performance and enhanced capabilities
     messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     tools: tools as OpenAI.Chat.Completions.ChatCompletionTool[] | undefined,
     stream: true,
-    temperature: 0.7,
+    // Note: GPT-5 only supports default temperature (1), custom values are not supported
   })
 
   return stream
