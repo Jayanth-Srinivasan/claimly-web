@@ -13,26 +13,81 @@ export async function saveAnswer(data: ClaimAnswerInsert): Promise<ClaimAnswer> 
   const supabase = await createClient()
 
   // Check if answer already exists for this claim and question
-  const existing = await getAnswer(data.claim_id, data.question_id)
+  // Use maybeSingle() to avoid errors if multiple exist (shouldn't happen, but safer)
+  const { data: existingAnswers, error: fetchError } = await supabase
+    .from('claim_answers')
+    .select('*')
+    .eq('claim_id', data.claim_id)
+    .eq('question_id', data.question_id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
-  if (existing) {
-    // Update existing answer
-    return updateAnswer(existing.id, {
+  if (fetchError && fetchError.code !== 'PGRST116') {
+    throw new Error(`Failed to fetch answer: ${fetchError.message}`)
+  }
+
+  if (existingAnswers) {
+    // Update existing answer - use direct update instead of updateOne to avoid JSON coercion issues
+    const updates: any = {
       answer_text: data.answer_text,
       answer_number: data.answer_number,
       answer_date: data.answer_date,
       answer_select: data.answer_select,
       answer_file_ids: data.answer_file_ids,
-      rule_evaluation_results: data.rule_evaluation_results,
       updated_at: new Date().toISOString(),
-    })
+    }
+    
+    // Only include rule_evaluation_results if it's provided and valid
+    if (data.rule_evaluation_results !== undefined && data.rule_evaluation_results !== null) {
+      // Ensure it's a valid JSON-serializable object
+      try {
+        updates.rule_evaluation_results = typeof data.rule_evaluation_results === 'string' 
+          ? JSON.parse(data.rule_evaluation_results)
+          : data.rule_evaluation_results
+      } catch (e) {
+        console.warn(`[saveAnswer] Invalid rule_evaluation_results JSON, skipping:`, e)
+        // Don't update rule_evaluation_results if it's invalid
+      }
+    }
+    
+    const { data: updated, error: updateError } = await supabase
+      .from('claim_answers')
+      .update(updates)
+      .eq('id', existingAnswers.id)
+      .select()
+      .single()
+    
+    if (updateError) {
+      throw new Error(`Failed to update answer: ${updateError.message}`)
+    }
+    
+    if (!updated) {
+      throw new Error(`Update returned no data`)
+    }
+    
+    return updated as ClaimAnswer
   } else {
     // Create new answer
-    return insertOne(supabase, 'claim_answers', {
+    const insertData: any = {
       ...data,
       created_at: data.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    })
+    }
+    
+    // Ensure rule_evaluation_results is properly formatted
+    if (insertData.rule_evaluation_results !== undefined && insertData.rule_evaluation_results !== null) {
+      if (typeof insertData.rule_evaluation_results === 'string') {
+        try {
+          insertData.rule_evaluation_results = JSON.parse(insertData.rule_evaluation_results)
+        } catch (e) {
+          console.warn(`[saveAnswer] Invalid rule_evaluation_results JSON for insert, setting to null:`, e)
+          insertData.rule_evaluation_results = null
+        }
+      }
+    }
+    
+    return insertOne(supabase, 'claim_answers', insertData)
   }
 }
 

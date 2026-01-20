@@ -8,7 +8,7 @@ import { FilePreview } from './FilePreview'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 // Dynamically import to avoid SSR issues
-const Webcam = dynamic(() => import('react-webcam'), { ssr: false })
+const Webcam = dynamic(() => import('react-webcam').then((mod) => ({ default: mod.default || mod })), { ssr: false }) as React.ComponentType<any>
 
 interface ChatInputProps {
   mode: 'policy' | 'claim'

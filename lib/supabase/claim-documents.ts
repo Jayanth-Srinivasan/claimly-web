@@ -95,9 +95,9 @@ export async function updateDocumentExtraction(
   autoFilledFields?: unknown
 ): Promise<ClaimDocument> {
   return updateDocumentProcessing(id, {
-    extracted_entities: extractedEntities,
-    ocr_data: ocrData,
-    auto_filled_fields: autoFilledFields,
+    extracted_entities: extractedEntities as any,
+    ocr_data: ocrData as any,
+    auto_filled_fields: autoFilledFields as any,
     processing_status: 'completed',
   })
 }

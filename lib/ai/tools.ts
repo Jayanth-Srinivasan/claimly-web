@@ -257,13 +257,13 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'save_answer',
-      description: 'Save an answer to a question. **MANDATORY**: Call this IMMEDIATELY after user answers each database question. Stores the answer and evaluates it against rules. Use session_id as claim_id - the system will resolve it to the actual claim_id. After saving, you MUST call validate_answers to check rules.',
+      description: 'Save an answer to a question. **MANDATORY**: Call this IMMEDIATELY after user answers each database question. Stores the answer and evaluates it against rules. **AUTO-RESOLUTION**: If claim_id is omitted or set to session_id, the system will automatically resolve it from the current session. After saving, you MUST call validate_answers to check rules.',
       parameters: {
         type: 'object',
         properties: {
           claim_id: {
             type: 'string',
-            description: 'The claim ID. If no claim exists yet, use the session_id - the system will handle creating a draft claim automatically.',
+            description: '**OPTIONAL**: The claim ID. If omitted, undefined, or set to "session_id", the system will automatically resolve it from the current session. You can also provide the actual claim_id if you have it. If no claim exists yet, the system will automatically create a draft claim.',
           },
           question_id: {
             type: 'string',
@@ -291,7 +291,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             description: 'Array of file IDs (for file fields)',
           },
         },
-        required: ['claim_id', 'question_id'],
+        required: ['question_id'],
       },
     },
   },
@@ -321,13 +321,13 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'extract_document_info',
-      description: 'Extract information from uploaded documents using AI. Validates document type, extracts text/data, and checks for authenticity. IMPORTANT: After calling this tool, you MUST provide a response to the user summarizing what was extracted. Do not just say "let me process" and stop - complete the extraction and respond immediately.',
+      description: '**RARELY NEEDED - DO NOT USE FOR IMAGES** - Re-process a document manually. Most documents (especially PDFs) are automatically processed when uploaded - you will receive processing results in the message, NOT raw file paths. **IMAGES (PNG, JPEG, etc.) are shown to you via vision API - analyze them visually and extract information directly. Do NOT call this tool for images.** Only use this tool if you explicitly need to re-process a PDF document that was already processed. When calling this tool, you MUST provide the actual document path (e.g., "af16c23b-135a-4e69-b994-dad7ed3d315c/1768756108711-filename.pdf" - with actual UUID and timestamp) and a valid claim ID (UUID format), NOT placeholders like "file_path", "userId/timestamp-receipt.png", or "session_id". **If you do not have the actual path from the upload message, do NOT call this tool.** Validates document type, extracts text/data, and checks for authenticity. **CRITICAL VALIDATION CHECKING**: After calling this tool, check the `validation` object in the response. It contains `isRelevant`, `contextMatches`, and `isValid` flags. If ANY of these are `false`, DO NOT save extracted info - instead politely ask the user to reupload the correct document with an explanation based on the `errors` array. Only proceed with saving extracted info if all validation flags are `true`. IMPORTANT: After calling this tool, you MUST provide a response to the user summarizing what was extracted or why validation failed.',
       parameters: {
         type: 'object',
         properties: {
           document_path: {
             type: 'string',
-            description: 'The file path or URL of the document to process',
+            description: 'The actual file path of the document to process (e.g., "userId/timestamp-filename.pdf"). **CRITICAL**: You MUST provide the actual path from the upload message, NOT placeholders like "file_path" or "path_to_receipt". If you do not have the actual path, do NOT call this tool - documents are automatically processed when uploaded.',
           },
           document_type: {
             type: 'string',
@@ -335,7 +335,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
           claim_id: {
             type: 'string',
-            description: 'The claim ID this document belongs to',
+            description: 'The actual claim ID (UUID format) this document belongs to. **CRITICAL**: You MUST provide a valid UUID, NOT placeholders like "session_id" or "claim_id". If you do not have the actual claim ID, do NOT call this tool - documents are automatically processed when uploaded.',
           },
         },
         required: ['document_path', 'claim_id'],
@@ -381,13 +381,13 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'prepare_claim_summary',
-      description: 'Generate a comprehensive summary of the claim before finalization. Collects all answers, extracted information, coverage types, and policy information. Returns a formatted summary that should be presented to the user for confirmation before creating the claim. **MANDATORY**: Call this BEFORE create_claim and display the ENTIRE summary to the user. The summary MUST include: incident description, coverage types, all answers to questions, all extracted information, and policy details. You MUST present this summary clearly to the user before asking for confirmation.',
+      description: 'Generate a comprehensive summary of the claim before finalization. Collects all answers, extracted information, coverage types, and policy information. Returns a formatted summary that should be presented to the user for confirmation before creating the claim. **MANDATORY**: Call this BEFORE create_claim and display the ENTIRE summary to the user. **CRITICAL**: You MUST display the ENTIRE summary text returned by this tool - do NOT summarize, truncate, or modify it. Show the complete summary exactly as returned in the formatted_summary field. The summary MUST include: incident description, coverage types, all answers to questions, all extracted information, and policy details. You MUST present this summary clearly to the user before asking for confirmation.',
       parameters: {
         type: 'object',
         properties: {
           session_id: {
             type: 'string',
-            description: 'The chat session ID',
+            description: 'The chat session ID. **CRITICAL**: This is automatically provided by the system - you should NOT pass "session_id" as a literal string. If you do not have the actual session ID, the system will auto-inject it. The session_id must be a valid UUID format.',
           },
         },
         required: ['session_id'],

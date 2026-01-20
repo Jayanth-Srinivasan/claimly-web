@@ -38,7 +38,13 @@ export async function extractDocumentInfo(
   expectedType?: string,
   context?: DocumentContext
 ): Promise<DocumentExtraction> {
+  const startTime = Date.now()
   const client = createOpenAIClient()
+
+  console.log(`[extractDocumentInfo] Starting document extraction - Expected type: ${expectedType || 'unknown'}, Has URL: ${'url' in document ? !!document.url : false}, Has path: ${'path' in document ? !!document.path : false}`)
+  if (context) {
+    console.log(`[extractDocumentInfo] Context provided - Coverage Type: ${context.claimContext?.coverageType || 'none'}, Incident Date: ${context.claimContext?.incidentDate || 'none'}, Incident Location: ${context.claimContext?.incidentLocation || 'none'}`)
+  }
 
   try {
     // Get the file URL - prefer provided URL, otherwise generate signed URL
@@ -69,6 +75,8 @@ export async function extractDocumentInfo(
     const isImage = mimeType?.startsWith('image/')
     const isPDF = mimeType === 'application/pdf'
     
+    console.log(`[extractDocumentInfo] Document type detected - MIME: ${mimeType || 'unknown'}, Is Image: ${isImage}, Is PDF: ${isPDF}, File URL: ${fileUrl.substring(0, 50)}...`)
+    
     // Build message content with image/document
     const messageContent: Array<
       | { type: 'text'; text: string }
@@ -86,22 +94,50 @@ export async function extractDocumentInfo(
         type: 'image_url',
         image_url: { url: fileUrl },
       })
-    } else if (isPDF) {
-      // For PDFs, we need to extract text first
-      // Try to use a PDF parsing approach
+    } else if (isPDF && fileUrl) {
+      // NOTE: OpenAI's vision API doesn't support PDFs directly - only images
+      // We need to convert PDF pages to images or extract text first
+      // For now, we'll fetch the PDF and try to extract text using a simple approach
+      console.log(`[extractDocumentInfo] Processing PDF - fetching and extracting text: ${fileUrl.substring(0, 50)}...`)
+      
       try {
-        // For now, we'll use the file URL and ask GPT-4 to extract text
-        // In the future, we could use pdf-parse or similar library
+        // Fetch the PDF from the signed URL
+        const pdfResponse = await fetch(fileUrl)
+        if (!pdfResponse.ok) {
+          throw new Error(`Failed to fetch PDF: ${pdfResponse.statusText}`)
+        }
+        
+        const pdfBuffer = await pdfResponse.arrayBuffer()
+        
+        // Try to use pdf-parse if available (requires: npm install pdf-parse)
+        try {
+          // pdf-parse is a CommonJS module, handle import accordingly
+          const pdfParseModule = await import('pdf-parse')
+          const pdfParse = (pdfParseModule as any).default || pdfParseModule
+          const pdfData = await pdfParse(Buffer.from(pdfBuffer))
+          const extractedText = pdfData.text
+          
+          console.log(`[extractDocumentInfo] PDF text extracted - ${extractedText.length} characters`)
+          
+          // Send extracted text to the model
+          messageContent.push({
+            type: 'text',
+            text: `\n\nThis is a PDF document. Here is the extracted text content:\n\n${extractedText}\n\nPlease analyze this text and extract all relevant information including: amounts, dates, merchant names, item descriptions, receipt numbers, flight numbers, baggage tag numbers, and any other relevant details.`,
+          })
+        } catch (parseError) {
+          // pdf-parse not available or failed - use fallback
+          console.warn(`[extractDocumentInfo] PDF parsing library not available, using fallback approach:`, parseError)
+          messageContent.push({
+            type: 'text',
+            text: `\n\nThis is a PDF document. The PDF file is available at: ${fileUrl}. However, automatic text extraction is not available. Please note that you may need to manually review this PDF. For proper PDF processing, please ensure the pdf-parse library is installed (npm install pdf-parse).`,
+          })
+        }
+      } catch (pdfError) {
+        console.error(`[extractDocumentInfo] PDF processing error:`, pdfError)
+        // Fallback: inform the model that PDF processing failed
         messageContent.push({
           type: 'text',
-          text: `\n\nThis is a PDF document at path: ${document.path}. Please extract all text content, amounts, dates, and relevant information from this PDF. Analyze the document structure and extract key information including: amounts, dates, merchant names, item descriptions, receipt numbers, and any other relevant details.`,
-        })
-      } catch (error) {
-        console.error('PDF processing error:', error)
-        // Fallback: inform the model that PDF processing may be limited
-        messageContent.push({
-          type: 'text',
-          text: `\n\nThis is a PDF document. PDF content extraction may be limited. Please attempt to extract information from the document metadata and any available text.`,
+          text: `\n\nThis is a PDF document, but automatic processing failed. The PDF is available at: ${fileUrl}. Please note that PDF content extraction may be limited. Error: ${pdfError instanceof Error ? pdfError.message : 'Unknown error'}`,
         })
       }
     }
@@ -140,17 +176,28 @@ Your tasks:
    - Verify document appears authentic (proper formatting, realistic data)
    - Check for consistency in the document (dates make sense, amounts are reasonable)
    - Score authenticity from 0-1 (1 = highly authentic, 0 = clearly tampered)
+   - Set isLegitimate to false if tampering is detected or authenticity score < 0.7
 
-3. VALIDATE relevance:
-   - Check if document type matches the claim type (e.g., baggage receipt for baggage loss claim)
+3. VALIDATE relevance (CRITICAL):
+   - **Document type MUST match the expected document type for the claim type**:
+     - For baggage loss claims: expect baggage_receipt, lost_item_receipt, purchase_receipt
+     - For flight cancellation claims: expect flight_cancellation, airline_notification, booking_confirmation
+     - For medical claims: expect medical_report, hospital_bill, prescription_receipt
+     - For other claim types: expect appropriate document types
+   - If document type does NOT match the expected type for the coverage type, set isRelevant to false
    - Verify document is appropriate for the coverage type
    - Check if document contains information relevant to the claim
+   - Set isRelevant to false if document type is clearly wrong (e.g., medical report for baggage loss claim)
 
-4. VALIDATE context matching:
+4. VALIDATE context matching (CRITICAL):
+   - **Dates MUST align**: If claim context includes an incident date, document dates should be close to or after the incident date (unless it's a receipt from before the incident)
+   - **Amounts MUST align**: If claim context includes an amount or previous answers mention an amount, document amounts should reasonably match (allow small variations for currency conversion or fees)
+   - **Locations MUST align**: If claim context includes a location, document locations should match or be related (e.g., airport code matches claim location)
    - Compare extracted information with claim context (dates, locations, amounts should align)
    - Check if extracted data matches previous answers (e.g., amount matches what user said)
    - Verify consistency with previously extracted information
    - Flag any discrepancies
+   - Set contextMatches to false if dates, amounts, or locations significantly differ from claim context
 
 Respond in JSON format with: {
   documentType: string,
@@ -182,6 +229,8 @@ Respond in JSON format with: {
     if (!content) {
       throw new Error('No content returned from document analysis')
     }
+    
+    console.log(`[extractDocumentInfo] Received response from OpenAI - Content length: ${content.length}`)
 
     const analysis = JSON.parse(content) as {
       documentType: string
@@ -201,9 +250,22 @@ Respond in JSON format with: {
     }
 
     // Determine overall validity based on all checks
-    const isLegitimate = analysis.isLegitimate !== false && (analysis.authenticityScore ?? 0.7) >= 0.7
-    const isRelevant = analysis.isRelevant !== false
-    const contextMatches = analysis.contextMatches !== false
+    // Use strict === true checks to ensure validation only passes if explicitly true
+    const isLegitimate = analysis.isLegitimate === true && (analysis.authenticityScore ?? 0.7) >= 0.7
+    const isRelevant = analysis.isRelevant === true
+    const contextMatches = analysis.contextMatches === true
+    
+    console.log(`[extractDocumentInfo] Validation flags determined:`, {
+      isLegitimate,
+      isRelevant,
+      contextMatches,
+      authenticityScore: analysis.authenticityScore,
+      analysisFlags: {
+        isLegitimate: analysis.isLegitimate,
+        isRelevant: analysis.isRelevant,
+        contextMatches: analysis.contextMatches,
+      }
+    })
 
     // Add warnings if validation checks fail
     const warnings = [...(analysis.validationResults.warnings || [])]
@@ -218,6 +280,9 @@ Respond in JSON format with: {
     }
 
     const isValid = analysis.validationResults.isValid && isLegitimate && isRelevant && contextMatches
+
+    const elapsedTime = Date.now() - startTime
+    console.log(`[extractDocumentInfo] Document analysis completed in ${elapsedTime}ms - Document Type: ${analysis.documentType}, Valid: ${isValid}, Entities: ${Object.keys(analysis.extractedEntities).length}, AutoFilled: ${Object.keys(analysis.autoFilledFields).length}`)
 
     return {
       extractedEntities: analysis.extractedEntities,
@@ -236,12 +301,21 @@ Respond in JSON format with: {
       },
     }
   } catch (error) {
-    console.error('[extractDocumentInfo] Error:', error)
-    console.error('[extractDocumentInfo] Document:', document)
-    console.error('[extractDocumentInfo] Expected type:', expectedType)
+    const elapsedTime = Date.now() - startTime
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    const errorStack = error instanceof Error ? error.stack : undefined
+    
+    console.error(`[extractDocumentInfo] Error occurred after ${elapsedTime}ms:`, {
+      error: errorMessage,
+      stack: errorStack,
+      document: 'path' in document ? { path: document.path, mimeType: (document as { path: string; mimeType?: string }).mimeType } : 'UploadedFile',
+      expectedType: expectedType || 'unknown',
+    })
     
     // Return a result that allows processing to continue
     // Don't throw - let the handler decide what to do
+    // Note: isLegitimate defaults to true to avoid blocking legitimate documents on technical errors
+    // But isRelevant and contextMatches default to false since we can't validate without processing
     return {
       extractedEntities: {},
       ocrData: '',
@@ -249,9 +323,9 @@ Respond in JSON format with: {
       documentType: expectedType || 'unknown',
       authenticityScore: 0.5,
       tamperingDetected: false,
-      isLegitimate: true, // Assume legitimate to avoid blocking
-      isRelevant: true, // Assume relevant to avoid blocking
-      contextMatches: true, // Assume matches to avoid blocking
+      isLegitimate: true, // Assume legitimate to avoid blocking on technical errors
+      isRelevant: false, // Cannot validate relevance without processing - require validation
+      contextMatches: false, // Cannot validate context matching without processing - require validation
       validationResults: {
         isValid: false,
         errors: [],
@@ -269,17 +343,20 @@ export function validateDocumentFormat(
   allowedTypes?: string[],
   maxSize?: number
 ): { isValid: boolean; error?: string } {
-  if (allowedTypes && file.mimeType && !allowedTypes.includes(file.mimeType)) {
+  const mimeType = 'mimeType' in file ? file.mimeType : ('type' in file ? file.type : undefined)
+  
+  if (allowedTypes && mimeType && !allowedTypes.includes(mimeType)) {
     return {
       isValid: false,
-      error: `Document type ${file.mimeType} is not allowed. Allowed types: ${allowedTypes.join(', ')}`,
+      error: `Document type ${mimeType} is not allowed. Allowed types: ${allowedTypes.join(', ')}`,
     }
   }
 
-  if (maxSize && file.size && file.size > maxSize) {
+  const fileSize = 'size' in file ? file.size : undefined
+  if (maxSize && fileSize && fileSize > maxSize) {
     return {
       isValid: false,
-      error: `Document size ${file.size} bytes exceeds maximum ${maxSize} bytes`,
+      error: `Document size ${fileSize} bytes exceeds maximum ${maxSize} bytes`,
     }
   }
 

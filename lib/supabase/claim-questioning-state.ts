@@ -107,12 +107,12 @@ export async function updateConversationHistory(
   if (!state) {
     return upsertQuestioningState({
       claim_id: claimId,
-      conversation_history: conversationHistory,
+      conversation_history: conversationHistory as any,
     })
   }
 
   return updateQuestioningState(state.id, {
-    conversation_history: conversationHistory,
+    conversation_history: conversationHistory as any,
   })
 }
 

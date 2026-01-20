@@ -17,7 +17,7 @@ import {
 import type { ChatSession, Message } from '@/types/chat'
 import { createOpenAIClient, getSystemPrompt, chatCompletion } from '@/lib/ai/openai-client'
 import { getToolsForMode } from '@/lib/ai/tools'
-import { handleToolCall } from '@/lib/ai/tool-handlers'
+import { handleToolCall, handleExtractDocumentInfo } from '@/lib/ai/tool-handlers'
 
 /**
  * Create a new claim mode chat session
@@ -252,18 +252,21 @@ export async function processPolicyMessageAction(
       }
 
       // Add assistant message to conversation
-      currentMessages.push({
-        role: 'assistant',
+      const assistantMessage: any = {
+        role: 'assistant' as const,
         content: message.content,
-        tool_calls: message.tool_calls?.map((tc) => ({
+      }
+      if (message.tool_calls) {
+        assistantMessage.tool_calls = message.tool_calls.map((tc) => ({
           id: tc.id,
           type: 'function' as const,
           function: {
             name: tc.function.name,
             arguments: tc.function.arguments,
           },
-        })),
-      })
+        }))
+      }
+      currentMessages.push(assistantMessage)
 
       // If there are tool calls, execute them
       const toolCalls = message.tool_calls || []
@@ -476,6 +479,116 @@ export async function processChatMessageAction(
       const imageUrls = fileUrls.filter(f => f.type === 'image').map(f => f.url)
       const documentPaths = fileUrls.filter(f => f.type !== 'image').map(f => f.fileId)
       
+      // Auto-process PDF documents if in claim mode (before AI sees them)
+      const documentProcessingResults: Array<{
+        path: string
+        success: boolean
+        validated: boolean
+        errors: string[]
+        extractedInfo?: Record<string, unknown>
+      }> = []
+      
+      if (mode === 'claim' && documentPaths.length > 0) {
+        console.log(`[processChatMessageAction] Auto-processing ${documentPaths.length} document(s) in claim mode before AI sees them`)
+        
+        // Get claim ID from session or intake state
+        let claimId: string | null = session.claim_id || null
+        
+        if (!claimId) {
+          // Try to get from intake state
+          try {
+            const { getIntakeStateBySession } = await import('@/lib/supabase/claim-intake-state')
+            const intakeState = await getIntakeStateBySession(sessionId)
+            claimId = intakeState?.claim_id || null
+          } catch (err) {
+            console.warn('[processChatMessageAction] Could not get claim from intake state:', err)
+          }
+          
+          // If still no claim ID, try from chat_sessions directly
+          if (!claimId) {
+            const { getClaimBySessionId } = await import('@/lib/supabase/claims')
+            try {
+              const claim = await getClaimBySessionId(sessionId)
+              claimId = claim?.id || null
+            } catch (err) {
+              console.warn('[processChatMessageAction] Could not get claim from session:', err)
+            }
+          }
+        }
+        
+        if (claimId) {
+          console.log(`[processChatMessageAction] Found claim ID: ${claimId}, processing documents`)
+          
+          // Process each document
+          for (const docPath of documentPaths) {
+            try {
+              // Determine document type from file extension
+              const ext = docPath.split('.').pop()?.toLowerCase() || ''
+              let docType = 'document'
+              if (ext === 'pdf') docType = 'receipt'
+              else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) docType = 'receipt'
+              
+              console.log(`[processChatMessageAction] Processing document: ${docPath}, type: ${docType}`)
+              
+              // Call handleExtractDocumentInfo to process the document
+              const result = await handleExtractDocumentInfo(docPath, claimId, docType)
+              
+              if (result.success && result.data && typeof result.data === 'object' && 'validation' in result.data && 'extraction' in result.data) {
+                const validation = (result.data as { validation?: any; extraction?: any }).validation
+                const extraction = (result.data as { validation?: any; extraction?: any }).extraction
+                
+                const processingResult = {
+                  path: docPath,
+                  success: true,
+                  validated: validation?.isValid === true && 
+                             validation?.isRelevant === true && 
+                             validation?.contextMatches === true,
+                  errors: validation?.errors || [],
+                  extractedInfo: extraction?.extractedEntities || {},
+                }
+                
+                documentProcessingResults.push(processingResult)
+                
+                console.log(`[processChatMessageAction] Document processed - Path: ${docPath}, Validated: ${processingResult.validated}, Errors: ${processingResult.errors.length}`)
+              } else {
+                // Processing failed
+                documentProcessingResults.push({
+                  path: docPath,
+                  success: false,
+                  validated: false,
+                  errors: [result.error || 'Failed to process document'],
+                })
+                console.error(`[processChatMessageAction] Document processing failed - Path: ${docPath}, Error: ${result.error}`)
+              }
+            } catch (err) {
+              // Exception during processing
+              const errorMessage = err instanceof Error ? err.message : 'Unknown error during processing'
+              documentProcessingResults.push({
+                path: docPath,
+                success: false,
+                validated: false,
+                errors: [errorMessage],
+              })
+              console.error(`[processChatMessageAction] Exception processing document - Path: ${docPath}, Error:`, err)
+            }
+          }
+        } else {
+          console.warn(`[processChatMessageAction] No claim ID found for session ${sessionId}, cannot auto-process documents`)
+          // Mark all documents as unable to process
+          for (const docPath of documentPaths) {
+            documentProcessingResults.push({
+              path: docPath,
+              success: false,
+              validated: false,
+              errors: ['Cannot process document: No claim found. Please start a claim before uploading documents.'],
+            })
+          }
+        }
+      } else if (documentPaths.length > 0 && mode !== 'claim') {
+        // Not in claim mode, don't process but note it
+        console.log(`[processChatMessageAction] Document(s) uploaded but not in claim mode, skipping auto-processing`)
+      }
+      
       // Create message content array for OpenAI (supports images)
       const messageContent: Array<
         | { type: 'text'; text: string }
@@ -495,11 +608,61 @@ export async function processChatMessageAction(
         })
       }
       
-      // Add text about documents if any
-      if (documentPaths.length > 0) {
+      // Add notification for images (they need to be analyzed visually by AI)
+      if (imageUrls.length > 0 && mode === 'claim') {
+        console.log(`[processChatMessageAction] User uploaded ${imageUrls.length} image(s). AI should analyze visually via vision API.`)
+        const imageFilePaths = fileUrls.filter(f => f.type === 'image').map(f => f.fileId)
         messageContent.push({
           type: 'text',
-          text: `\n\n[User has also uploaded ${documentPaths.length} document(s): ${documentPaths.join(', ')}. Please process these using extract_document_info tool.]`,
+          text: `\n\n[User has uploaded ${imageUrls.length} image(s). Images are visible to you via vision API. Please analyze them visually - extract information, validate the document type matches the claim, and confirm if dates/amounts/locations match the claim context. After analyzing, call save_extracted_info for each piece of information you extract, and then provide a confirmation to the user: "I've analyzed your document and extracted the following information: [list what you found]. This information has been saved to your claim." File paths: ${imageFilePaths.join(', ')}]`,
+        })
+      }
+      
+      // Add text about document processing results (instead of asking AI to process)
+      if (documentProcessingResults.length > 0) {
+        const processingSummary: string[] = []
+        
+        for (let i = 0; i < documentProcessingResults.length; i++) {
+          const result = documentProcessingResults[i]
+          const docNum = i + 1
+          
+          if (result.success && result.validated) {
+            // Successfully processed and validated
+            const extractedInfo = result.extractedInfo || {}
+            const extractedKeys = Object.keys(extractedInfo)
+            let extractedSummary = ''
+            if (extractedKeys.length > 0) {
+              // Include actual values, not just keys
+              const extractedDetails = extractedKeys.slice(0, 5).map(key => {
+                const value = extractedInfo[key]
+                const displayValue = typeof value === 'string' && value.length > 30 
+                  ? `${value.substring(0, 30)}...` 
+                  : String(value || '')
+                return `${key}: ${displayValue}`
+              }).join(', ')
+              extractedSummary = ` Extracted: ${extractedDetails}${extractedKeys.length > 5 ? '...' : ''}`
+            }
+            processingSummary.push(`Document ${docNum} - Successfully processed and validated.${extractedSummary}`)
+          } else if (result.success && !result.validated) {
+            // Processed but validation failed
+            const errorText = result.errors.length > 0 ? ` ${result.errors[0]}` : 'Validation failed'
+            processingSummary.push(`Document ${docNum} - Processed but validation failed:${errorText}`)
+          } else {
+            // Processing failed
+            const errorText = result.errors.length > 0 ? ` ${result.errors[0]}` : 'Processing failed'
+            processingSummary.push(`Document ${docNum} - Processing failed:${errorText}`)
+          }
+        }
+        
+        messageContent.push({
+          type: 'text',
+          text: `\n\n[User uploaded ${documentProcessingResults.length} document(s). Automatic processing completed:\n${processingSummary.join('\n')}\n\nPlease respond to the user about the document processing results. If validation failed, politely ask them to upload the correct document type.]`,
+        })
+      } else if (documentPaths.length > 0) {
+        // Documents uploaded but not processed (e.g., not in claim mode)
+        messageContent.push({
+          type: 'text',
+          text: `\n\n[User has uploaded ${documentPaths.length} document(s): ${documentPaths.join(', ')}. Documents will be processed when a claim is started.]`,
         })
       }
       
@@ -613,9 +776,33 @@ export async function processChatMessageAction(
             continue
           }
 
-          // Add session_id if not present (for claims mode)
-          if (mode === 'claim' && !toolArgs.session_id) {
-            toolArgs.session_id = sessionId
+          // Add session_id if not present OR if it's a placeholder (for claims mode)
+          if (mode === 'claim') {
+            const isPlaceholder = !toolArgs.session_id || 
+                                 toolArgs.session_id === 'session_id' || 
+                                 toolArgs.session_id === 'claim_id' ||
+                                 typeof toolArgs.session_id !== 'string' ||
+                                 !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(toolArgs.session_id as string)
+            
+            if (isPlaceholder) {
+              console.log(`[processChatMessageAction] Auto-injecting session_id for tool ${toolName} - provided: ${toolArgs.session_id}, actual: ${sessionId}`)
+              toolArgs.session_id = sessionId
+            }
+            
+            // For save_answer tool, also handle claim_id auto-injection
+            if (toolName === 'save_answer') {
+              const claimIdPlaceholder = !toolArgs.claim_id || 
+                                        toolArgs.claim_id === 'session_id' || 
+                                        toolArgs.claim_id === 'claim_id' ||
+                                        typeof toolArgs.claim_id !== 'string' ||
+                                        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(toolArgs.claim_id as string)
+              
+              if (claimIdPlaceholder) {
+                console.log(`[processChatMessageAction] Auto-injecting claim_id for save_answer - provided: ${toolArgs.claim_id}, will resolve from session: ${sessionId}`)
+                // Set to session_id temporarily - handleSaveAnswer will resolve it to actual claim_id
+                toolArgs.claim_id = sessionId
+              }
+            }
           }
 
           // Execute tool
@@ -664,6 +851,71 @@ export async function processChatMessageAction(
       role: 'assistant',
       content: finalResponse,
     })
+    
+    // Verify if documents/images were processed and saved (only for claim mode with files)
+    if (mode === 'claim' && attachedFileIds && attachedFileIds.length > 0) {
+      try {
+        console.log(`[processChatMessageAction] Verifying document processing - checking database for ${attachedFileIds.length} file(s)`)
+        
+        // Get claim ID to check documents
+        let claimId: string | null = session.claim_id || null
+        if (!claimId) {
+          const { getIntakeStateBySession } = await import('@/lib/supabase/claim-intake-state')
+          const intakeState = await getIntakeStateBySession(sessionId)
+          claimId = intakeState?.claim_id || null
+        }
+        
+        if (claimId) {
+          // Check if documents were saved for the uploaded file paths
+          const { data: savedDocuments, error: docsError } = await supabase
+            .from('claim_documents')
+            .select('id, file_path, file_name, processing_status, extracted_entities, uploaded_at')
+            .eq('claim_id', claimId)
+            .in('file_path', attachedFileIds)
+          
+          if (docsError) {
+            console.error(`[processChatMessageAction] Error checking saved documents:`, docsError)
+          } else {
+            const savedCount = savedDocuments?.length || 0
+            const savedPaths = savedDocuments?.map(d => d.file_path) || []
+            const notSaved = attachedFileIds.filter(path => !savedPaths.includes(path))
+            
+            console.log(`[processChatMessageAction] Document verification - Uploaded: ${attachedFileIds.length}, Saved: ${savedCount}, Not saved: ${notSaved.length}`)
+            if (savedCount > 0) {
+              savedDocuments?.forEach(doc => {
+                console.log(`[processChatMessageAction] Verified document saved - Path: ${doc.file_path}, Status: ${doc.processing_status}, Has entities: ${Object.keys(doc.extracted_entities || {}).length > 0}`)
+              })
+            }
+            if (notSaved.length > 0) {
+              console.warn(`[processChatMessageAction] Some files were not saved to database:`, notSaved)
+            }
+          }
+          
+          // Check extracted info count
+          const { data: extractedInfo, error: infoError } = await supabase
+            .from('claim_extracted_information')
+            .select('id, field_name, created_at')
+            .eq('claim_id', claimId)
+            .gte('created_at', new Date(Date.now() - 60000).toISOString()) // Last minute
+          
+          if (infoError) {
+            console.error(`[processChatMessageAction] Error checking extracted info:`, infoError)
+          } else {
+            const infoCount = extractedInfo?.length || 0
+            if (infoCount > 0) {
+              console.log(`[processChatMessageAction] Verified extracted info saved - Fields: ${infoCount}, Field names: ${extractedInfo.map(i => i.field_name).join(', ')}`)
+            } else {
+              console.warn(`[processChatMessageAction] No extracted info found for recent document processing`)
+            }
+          }
+        } else {
+          console.warn(`[processChatMessageAction] Cannot verify documents - no claim ID found for session ${sessionId}`)
+        }
+      } catch (verifyError) {
+        console.error(`[processChatMessageAction] Exception during document verification:`, verifyError)
+        // Don't fail the request - verification is informational only
+      }
+    }
 
     return {
       success: true,
@@ -675,5 +927,21 @@ export async function processChatMessageAction(
       success: false,
       error: error instanceof Error ? error.message : 'Failed to process message',
     }
+  }
+}
+
+/**
+ * Process admin chat message (stub - to be implemented)
+ */
+export async function processAdminChatMessageAction(
+  claimId: string,
+  adminId: string,
+  content: string,
+  messageHistory: Array<{ role: string; content: string }>
+) {
+  return {
+    success: false,
+    error: 'Admin chat processing not yet implemented',
+    content: null as string | null,
   }
 }

@@ -38,7 +38,7 @@ export function OnboardingWizard({ profile, policies }: OnboardingWizardProps) {
     try {
       const result = await completeOnboarding(data)
 
-      if (result?.error) {
+      if (result && 'error' in result && result.error) {
         alert(result.error)
         setIsLoading(false)
         return

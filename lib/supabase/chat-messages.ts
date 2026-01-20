@@ -56,10 +56,10 @@ export async function addMessageToSession(
 export function dbMessageToMessage(dbMessage: ChatMessage): Message {
   return {
     id: dbMessage.id,
-    role: dbMessage.role,
+    role: dbMessage.role as 'user' | 'assistant' | 'system',
     content: dbMessage.content,
     timestamp: new Date(dbMessage.created_at),
-    attached_file_ids: dbMessage.attached_file_ids,
+    attached_file_ids: dbMessage.attached_file_ids || undefined,
     sources: dbMessage.sources,
     reports: dbMessage.reports,
     analysis: dbMessage.analysis,

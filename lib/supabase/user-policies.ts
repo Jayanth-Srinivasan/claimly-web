@@ -19,7 +19,7 @@ export async function getUserPolicies(userId: string): Promise<UserPolicy[]> {
     .order('enrolled_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch user policies: ${error.message}`)
-  return (data || []) as UserPolicy[]
+  return (data || []) as unknown as UserPolicy[]
 }
 
 /**
@@ -36,7 +36,7 @@ export async function getActiveUserPolicies(userId: string): Promise<UserPolicy[
     .order('enrolled_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch active user policies: ${error.message}`)
-  return (data || []) as UserPolicy[]
+  return (data || []) as unknown as UserPolicy[]
 }
 
 /**
@@ -63,7 +63,7 @@ export async function getUserPoliciesWithDetails(
     .order('enrolled_at', { ascending: false })
 
   if (error) throw new Error(`Failed to fetch user policies with details: ${error.message}`)
-  return (data || []) as UserPolicyWithPolicy[]
+  return (data || []) as unknown as UserPolicyWithPolicy[]
 }
 
 /**
@@ -80,18 +80,18 @@ export async function enrollUserInPolicy(data: UserPolicyInsert): Promise<UserPo
       policy_name: data.policy_name,
       enrolled_at: data.enrolled_at || new Date().toISOString(),
       expires_at: data.expires_at || null,
-      coverage_items: data.coverage_items,
+      coverage_items: data.coverage_items as any,
       total_premium: data.total_premium || null,
       currency: data.currency || 'USD',
       is_active: data.is_active ?? true,
       status: data.status || 'active',
       notes: data.notes || null,
-    })
+    } as any)
     .select()
     .single()
 
   if (error) throw new Error(`Failed to enroll user in policy: ${error.message}`)
-  return result as UserPolicy
+  return result as unknown as UserPolicy
 }
 
 /**
@@ -105,13 +105,13 @@ export async function updateUserPolicy(
 
   const { data, error } = await supabase
     .from('user_policies')
-    .update(updates)
+    .update(updates as any)
     .eq('id', id)
     .select()
     .single()
 
   if (error) throw new Error(`Failed to update user policy: ${error.message}`)
-  return data as UserPolicy
+  return data as unknown as UserPolicy
 }
 
 /**
@@ -134,7 +134,7 @@ export async function updateCoverageUsage(
   if (fetchError) throw new Error(`Failed to fetch policy: ${fetchError.message}`)
 
   // Update the specific coverage item
-  const coverageItems = currentPolicy.coverage_items as CoverageItem[]
+  const coverageItems = currentPolicy.coverage_items as unknown as CoverageItem[]
   const updatedItems = coverageItems.map((item) => {
     if (item.name === coverageName) {
       return {
@@ -171,7 +171,7 @@ export async function getUserPolicy(id: string): Promise<UserPolicy | null> {
     .single()
 
   if (error) return null
-  return data as UserPolicy
+  return data as unknown as UserPolicy
 }
 
 /**
@@ -217,7 +217,7 @@ export async function getUserPoliciesWithCoverageTypes(
 
   // For each policy, get its coverage types
   const policiesWithCoverageTypes = await Promise.all(
-    (policies as UserPolicy[]).map(async (policy) => {
+    (policies as unknown as UserPolicy[]).map(async (policy) => {
       const coverage_types: Array<{
         coverage_type_id: string
         coverage_type_name: string
