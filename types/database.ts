@@ -121,144 +121,56 @@ export type Database = {
           },
         ]
       }
-      claim_answers: {
-        Row: {
-          answer_date: string | null
-          answer_file_ids: string[] | null
-          answer_number: number | null
-          answer_select: string | null
-          answer_text: string | null
-          claim_id: string
-          created_at: string | null
-          id: string
-          question_id: string
-          rule_evaluation_results: Json | null
-          updated_at: string | null
-        }
-        Insert: {
-          answer_date?: string | null
-          answer_file_ids?: string[] | null
-          answer_number?: number | null
-          answer_select?: string | null
-          answer_text?: string | null
-          claim_id: string
-          created_at?: string | null
-          id?: string
-          question_id: string
-          rule_evaluation_results?: Json | null
-          updated_at?: string | null
-        }
-        Update: {
-          answer_date?: string | null
-          answer_file_ids?: string[] | null
-          answer_number?: number | null
-          answer_select?: string | null
-          answer_text?: string | null
-          claim_id?: string
-          created_at?: string | null
-          id?: string
-          question_id?: string
-          rule_evaluation_results?: Json | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "claim_answers_claim_id_fkey"
-            columns: ["claim_id"]
-            isOneToOne: false
-            referencedRelation: "claims"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "claim_answers_question_id_fkey"
-            columns: ["question_id"]
-            isOneToOne: false
-            referencedRelation: "questions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       claim_documents: {
         Row: {
-          authenticity_score: number | null
-          auto_filled_fields: Json | null
-          chat_message_id: string | null
-          claim_id: string
-          document_purpose: string | null
-          extracted_entities: Json | null
+          claim_id: string | null
+          claim_session_id: string | null
+          extracted_data: Json | null
           file_name: string
           file_path: string
           file_size: number | null
           file_type: string
           id: string
-          inferred_document_type: string | null
-          is_verified: boolean | null
           mime_type: string | null
           ocr_data: Json | null
           processed_at: string | null
           processing_status: string | null
-          risk_flags: Json | null
-          tampering_detected: boolean | null
           uploaded_at: string | null
-          validation_results: Json | null
-          verified_at: string | null
+          user_id: string
         }
         Insert: {
-          authenticity_score?: number | null
-          auto_filled_fields?: Json | null
-          chat_message_id?: string | null
-          claim_id: string
-          document_purpose?: string | null
-          extracted_entities?: Json | null
+          claim_id?: string | null
+          claim_session_id?: string | null
+          extracted_data?: Json | null
           file_name: string
           file_path: string
           file_size?: number | null
           file_type: string
           id?: string
-          inferred_document_type?: string | null
-          is_verified?: boolean | null
           mime_type?: string | null
           ocr_data?: Json | null
           processed_at?: string | null
           processing_status?: string | null
-          risk_flags?: Json | null
-          tampering_detected?: boolean | null
           uploaded_at?: string | null
-          validation_results?: Json | null
-          verified_at?: string | null
+          user_id: string
         }
         Update: {
-          authenticity_score?: number | null
-          auto_filled_fields?: Json | null
-          chat_message_id?: string | null
-          claim_id?: string
-          document_purpose?: string | null
-          extracted_entities?: Json | null
+          claim_id?: string | null
+          claim_session_id?: string | null
+          extracted_data?: Json | null
           file_name?: string
           file_path?: string
           file_size?: number | null
           file_type?: string
           id?: string
-          inferred_document_type?: string | null
-          is_verified?: boolean | null
           mime_type?: string | null
           ocr_data?: Json | null
           processed_at?: string | null
           processing_status?: string | null
-          risk_flags?: Json | null
-          tampering_detected?: boolean | null
           uploaded_at?: string | null
-          validation_results?: Json | null
-          verified_at?: string | null
+          user_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "claim_documents_chat_message_id_fkey"
-            columns: ["chat_message_id"]
-            isOneToOne: false
-            referencedRelation: "chat_messages"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "claim_documents_claim_id_fkey"
             columns: ["claim_id"]
@@ -266,206 +178,107 @@ export type Database = {
             referencedRelation: "claims"
             referencedColumns: ["id"]
           },
-        ]
-      }
-      claim_extracted_information: {
-        Row: {
-          claim_id: string
-          confidence: string | null
-          created_at: string | null
-          field_name: string
-          field_value: Json
-          id: string
-          source: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          claim_id: string
-          confidence?: string | null
-          created_at?: string | null
-          field_name: string
-          field_value: Json
-          id?: string
-          source?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          claim_id?: string
-          confidence?: string | null
-          created_at?: string | null
-          field_name?: string
-          field_value?: Json
-          id?: string
-          source?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
           {
-            foreignKeyName: "claim_extracted_information_claim_id_fkey"
-            columns: ["claim_id"]
+            foreignKeyName: "claim_documents_claim_session_id_fkey"
+            columns: ["claim_session_id"]
             isOneToOne: false
-            referencedRelation: "claims"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      claim_intake_state: {
-        Row: {
-          categorization_confidence: string | null
-          claim_id: string | null
-          claim_number: string | null
-          completed_at: string | null
-          coverage_type_ids: string[] | null
-          created_at: string
-          current_stage: string
-          database_questions_asked: string[] | null
-          extracted_data: Json | null
-          id: string
-          incident_description: string | null
-          questioning_state: Json | null
-          session_id: string
-          updated_at: string
-          uploaded_document_ids: string[] | null
-          user_id: string
-          validation_errors: Json | null
-          validation_passed: boolean | null
-          validation_results: Json | null
-        }
-        Insert: {
-          categorization_confidence?: string | null
-          claim_id?: string | null
-          claim_number?: string | null
-          completed_at?: string | null
-          coverage_type_ids?: string[] | null
-          created_at?: string
-          current_stage?: string
-          database_questions_asked?: string[] | null
-          extracted_data?: Json | null
-          id?: string
-          incident_description?: string | null
-          questioning_state?: Json | null
-          session_id: string
-          updated_at?: string
-          uploaded_document_ids?: string[] | null
-          user_id: string
-          validation_errors?: Json | null
-          validation_passed?: boolean | null
-          validation_results?: Json | null
-        }
-        Update: {
-          categorization_confidence?: string | null
-          claim_id?: string | null
-          claim_number?: string | null
-          completed_at?: string | null
-          coverage_type_ids?: string[] | null
-          created_at?: string
-          current_stage?: string
-          database_questions_asked?: string[] | null
-          extracted_data?: Json | null
-          id?: string
-          incident_description?: string | null
-          questioning_state?: Json | null
-          session_id?: string
-          updated_at?: string
-          uploaded_document_ids?: string[] | null
-          user_id?: string
-          validation_errors?: Json | null
-          validation_passed?: boolean | null
-          validation_results?: Json | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "claim_intake_state_claim_id_fkey"
-            columns: ["claim_id"]
-            isOneToOne: false
-            referencedRelation: "claims"
+            referencedRelation: "claim_sessions"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "claim_intake_state_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: true
-            referencedRelation: "chat_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      claim_notes: {
-        Row: {
-          admin_id: string
-          claim_id: string
-          content: string
-          created_at: string | null
-          id: string
-          note_type: string
-        }
-        Insert: {
-          admin_id: string
-          claim_id: string
-          content: string
-          created_at?: string | null
-          id?: string
-          note_type: string
-        }
-        Update: {
-          admin_id?: string
-          claim_id?: string
-          content?: string
-          created_at?: string | null
-          id?: string
-          note_type?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "claim_notes_admin_id_fkey"
-            columns: ["admin_id"]
+            foreignKeyName: "claim_documents_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      claim_sessions: {
+        Row: {
+          answers: Json | null
+          chat_session_id: string
+          claim_id: string | null
+          claim_number: string | null
+          coverage_type_ids: string[] | null
+          created_at: string | null
+          id: string
+          incident_date: string | null
+          incident_description: string | null
+          incident_location: string | null
+          incident_type: string | null
+          policy_id: string | null
+          questions_asked: string[] | null
+          stage: string
+          submitted_at: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          answers?: Json | null
+          chat_session_id: string
+          claim_id?: string | null
+          claim_number?: string | null
+          coverage_type_ids?: string[] | null
+          created_at?: string | null
+          id?: string
+          incident_date?: string | null
+          incident_description?: string | null
+          incident_location?: string | null
+          incident_type?: string | null
+          policy_id?: string | null
+          questions_asked?: string[] | null
+          stage?: string
+          submitted_at?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          answers?: Json | null
+          chat_session_id?: string
+          claim_id?: string | null
+          claim_number?: string | null
+          coverage_type_ids?: string[] | null
+          created_at?: string | null
+          id?: string
+          incident_date?: string | null
+          incident_description?: string | null
+          incident_location?: string | null
+          incident_type?: string | null
+          policy_id?: string | null
+          questions_asked?: string[] | null
+          stage?: string
+          submitted_at?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
           {
-            foreignKeyName: "claim_notes_claim_id_fkey"
+            foreignKeyName: "claim_sessions_chat_session_id_fkey"
+            columns: ["chat_session_id"]
+            isOneToOne: true
+            referencedRelation: "chat_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claim_sessions_claim_id_fkey"
             columns: ["claim_id"]
             isOneToOne: false
             referencedRelation: "claims"
             referencedColumns: ["id"]
           },
-        ]
-      }
-      claim_questioning_state: {
-        Row: {
-          claim_id: string
-          conversation_history: Json | null
-          created_at: string | null
-          current_focus: string | null
-          database_questions_asked: Json | null
-          id: string
-          updated_at: string | null
-        }
-        Insert: {
-          claim_id: string
-          conversation_history?: Json | null
-          created_at?: string | null
-          current_focus?: string | null
-          database_questions_asked?: Json | null
-          id?: string
-          updated_at?: string | null
-        }
-        Update: {
-          claim_id?: string
-          conversation_history?: Json | null
-          created_at?: string | null
-          current_focus?: string | null
-          database_questions_asked?: Json | null
-          id?: string
-          updated_at?: string | null
-        }
-        Relationships: [
           {
-            foreignKeyName: "claim_questioning_state_claim_id_fkey"
-            columns: ["claim_id"]
-            isOneToOne: true
-            referencedRelation: "claims"
+            foreignKeyName: "claim_sessions_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claim_sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

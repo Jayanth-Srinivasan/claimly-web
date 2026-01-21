@@ -8,7 +8,7 @@ export const policyTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_user_policies',
-      description: 'Fetch all active policies for the current user from the database. ALWAYS use this tool first when user asks about their coverage or policies. Returns policy details including coverage items, limits, and premiums.',
+      description: 'Fetch active user policies with coverage details, limits, and premiums.',
       parameters: {
         type: 'object',
         properties: {},
@@ -20,7 +20,7 @@ export const policyTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_policy_details',
-      description: 'Get COMPLETE detailed information about a specific policy. ALWAYS use this tool after suggest_policies to get full coverage details for each suggested policy. Returns all coverage types with their specific limits, deductibles, premiums, exclusions, and all other policy details. This is essential for providing comprehensive policy recommendations.',
+      description: 'Get detailed policy information including coverage types, limits, deductibles, premiums, and exclusions.',
       parameters: {
         type: 'object',
         properties: {
@@ -54,18 +54,18 @@ export const policyTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'suggest_policies',
-      description: 'Find and suggest policies that match user requirements from the database. ALWAYS use this tool when user asks for policy recommendations. Returns policies with complete coverage information including coverage_list array with all coverage types, limits, and details. The response includes: coverage_list (array of {name, limit, deductible}), exclusions, premium, and summary. Use the coverage_list array to provide detailed coverage information to users. If no policies match, returns an empty list.',
+      description: 'Find policies matching user requirements. Returns policies with coverage details.',
       parameters: {
         type: 'object',
         properties: {
           coverage_types: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Array of coverage type IDs or names the user needs (e.g., ["travel", "medical", "life", "baggage"])',
+            description: 'Array of coverage type IDs or names the user needs',
           },
           min_coverage_limit: {
             type: 'number',
-            description: 'Minimum coverage limit required for specific coverage type (optional)',
+            description: 'Minimum coverage limit required (optional)',
           },
           max_premium: {
             type: 'number',
@@ -80,7 +80,7 @@ export const policyTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'detect_tone',
-      description: 'Analyze the emotional tone of the user message to adjust response style. Returns tone classification (frustrated, anxious, calm, etc.) and suggested response style.',
+      description: 'Analyze the emotional tone of the user message to adjust response style.',
       parameters: {
         type: 'object',
         properties: {
@@ -96,9 +96,155 @@ export const policyTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 ]
 
 /**
- * Tool definitions for Claims Chat Mode
+ * Tool definitions for Claims Chat Mode (simplified architecture)
+ * Only 5 core tools for the new clean workflow:
+ * 1. update_claim_session - Store all claim data (answers, info, stage)
+ * 2. get_claim_session - Get current session state
+ * 3. upload_document - Handle file uploads
+ * 4. prepare_claim_summary - Generate summary for review
+ * 5. submit_claim - Finalize and create claim
  */
 export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'update_claim_session',
+      description: 'Update claim session data. Use this to store incident info, answers, and track questions asked. Session is auto-created on first call.',
+      parameters: {
+        type: 'object',
+        properties: {
+          stage: {
+            type: 'string',
+            description: 'Current stage: gathering_info, reviewing_summary, submitted',
+            enum: ['gathering_info', 'reviewing_summary', 'submitted'],
+          },
+          incident_type: {
+            type: 'string',
+            description: 'Type of incident (e.g., baggage_loss, flight_cancellation, medical)',
+          },
+          incident_description: {
+            type: 'string',
+            description: 'User description of the incident',
+          },
+          incident_date: {
+            type: 'string',
+            description: 'Date of the incident in ISO format',
+          },
+          incident_location: {
+            type: 'string',
+            description: 'Location where the incident occurred',
+          },
+          coverage_type_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of coverage type IDs identified for this claim',
+          },
+          policy_id: {
+            type: 'string',
+            description: 'The policy ID this claim is for',
+          },
+          answer_key: {
+            type: 'string',
+            description: 'Key for the answer being stored (e.g., "claimed_amount", "departure_date")',
+          },
+          answer: {
+            type: 'object',
+            description: 'Answer object with value, type, and label',
+            properties: {
+              value: {
+                description: 'The answer value (string, number, date, or array)',
+              },
+              type: {
+                type: 'string',
+                description: 'Answer type: text, date, number, select, file',
+                enum: ['text', 'date', 'number', 'select', 'file'],
+              },
+              label: {
+                type: 'string',
+                description: 'Human-readable label for the answer',
+              },
+            },
+            required: ['value', 'type', 'label'],
+          },
+          question_asked: {
+            type: 'string',
+            description: 'Question that was asked (for tracking)',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_claim_session',
+      description: 'Get current claim session state. Returns session data, stage, and progress.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'upload_document',
+      description: 'Record an uploaded document for the claim session.',
+      parameters: {
+        type: 'object',
+        properties: {
+          file_name: {
+            type: 'string',
+            description: 'Name of the uploaded file',
+          },
+          file_path: {
+            type: 'string',
+            description: 'Storage path of the file',
+          },
+          file_type: {
+            type: 'string',
+            description: 'Type of document (e.g., receipt, invoice, medical_report)',
+          },
+          file_size: {
+            type: 'number',
+            description: 'File size in bytes',
+          },
+          mime_type: {
+            type: 'string',
+            description: 'MIME type of the file',
+          },
+        },
+        required: ['file_name', 'file_path', 'file_type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'prepare_claim_summary',
+      description: 'Generate a summary of all collected claim information for user review. Call this before asking for confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'submit_claim',
+      description: 'Finalize and submit the claim. Creates the final claim record. Only call after user confirms the summary.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  // Helper tools (optional but useful)
   {
     type: 'function',
     function: {
@@ -120,7 +266,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'check_policy_coverage',
-      description: 'Check if a coverage type is covered by the user\'s active policies. MANDATORY: Call this AFTER categorizing incident to verify the user has coverage. If is_covered is false, gracefully inform the user and do NOT proceed with the claim.',
+      description: 'Check if coverage type is covered by user\'s active policies.',
       parameters: {
         type: 'object',
         properties: {
@@ -136,356 +282,8 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'get_intake_state',
-      description: 'Get the current claim intake state for the session. Returns current stage, questions asked, validation status, and other progress information. ALWAYS call this first when starting a new claim or checking progress. The session_id is automatically provided by the system.',
-      parameters: {
-        type: 'object',
-        properties: {
-          session_id: {
-            type: 'string',
-            description: 'The chat session ID (automatically provided by the system)',
-          },
-        },
-        required: ['session_id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'update_intake_state',
-      description: 'Update the claim intake state. Use this to track progress, update stage, mark questions as asked, and update validation status. IMPORTANT: When you set coverage_type_ids and move to categorization stage, the system automatically creates a DRAFT claim that will be used for saving answers. The session_id is automatically provided by the system.',
-      parameters: {
-        type: 'object',
-        properties: {
-          session_id: {
-            type: 'string',
-            description: 'The chat session ID',
-          },
-          current_stage: {
-            type: 'string',
-            description: 'Current stage: initial_contact, categorization, questioning, document_collection, validation, claim_creation',
-            enum: [
-              'initial_contact',
-              'categorization',
-              'questioning',
-              'document_collection',
-              'validation',
-              'claim_creation',
-            ],
-          },
-          coverage_type_ids: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of coverage type IDs identified for this claim',
-          },
-          incident_description: {
-            type: 'string',
-            description: 'The incident description',
-          },
-          database_questions_asked: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of question IDs that have been asked',
-          },
-          validation_passed: {
-            type: 'boolean',
-            description: 'Whether validation has passed',
-          },
-          validation_errors: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of validation error messages',
-          },
-        },
-        required: ['session_id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_coverage_questions',
-      description: 'Get all questions configured for a coverage type. Returns questions ordered by order_index, including field types and validation rules. **ABSOLUTELY MANDATORY**: After policy check passes, you MUST call this tool IMMEDIATELY. **CRITICAL**: The response has a `data` field which is an array. **IF data array has questions (length > 0)**: These ARE the configured questions - you MUST use them EXACTLY and ask ALL of them. **ABSOLUTELY FORBIDDEN**: Do NOT say "no specific database questions configured" or "no questions configured" - if data array has questions, they ARE configured. If data array is empty (length === 0), proceed with adaptive questioning but DO NOT say "no questions configured". You MUST ask ONLY these database questions if they exist - NEVER ask generic questions like "when did it happen" or "how much". **ABSOLUTELY CRITICAL**: Use the EXACT question_text character-for-character from the returned questions - copy it exactly, do not modify, rephrase, or paraphrase. You must ask ALL questions from this tool before proceeding to documents or finalization.',
-      parameters: {
-        type: 'object',
-        properties: {
-          coverage_type_id: {
-            type: 'string',
-            description: 'The coverage type ID to get questions for',
-          },
-        },
-        required: ['coverage_type_id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_coverage_rules',
-      description: 'Get all active rules configured for a coverage type. Returns rules including conditions, actions, and validation logic. Use this to understand what validation rules apply and what additional information might be required based on answers. Rules can help determine which questions to ask next or what documents are needed.',
-      parameters: {
-        type: 'object',
-        properties: {
-          coverage_type_id: {
-            type: 'string',
-            description: 'The coverage type ID to get rules for',
-          },
-        },
-        required: ['coverage_type_id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_extracted_info',
-      description: 'Get all extracted information for a claim. This includes all data extracted from user messages, documents, and AI analysis. Use this before creating a claim to ensure you have all necessary information to populate claim fields like incident_date, incident_location, total_claimed_amount, and incident_type.',
-      parameters: {
-        type: 'object',
-        properties: {
-          claim_id: {
-            type: 'string',
-            description: 'The claim ID to get extracted information for',
-          },
-        },
-        required: ['claim_id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'save_answer',
-      description: 'Save an answer to a question. **MANDATORY**: Call this IMMEDIATELY after user answers each database question. Stores the answer and evaluates it against rules. **AUTO-RESOLUTION**: If claim_id is omitted or set to session_id, the system will automatically resolve it from the current session. After saving, you MUST call validate_answers to check rules.',
-      parameters: {
-        type: 'object',
-        properties: {
-          claim_id: {
-            type: 'string',
-            description: '**OPTIONAL**: The claim ID. If omitted, undefined, or set to "session_id", the system will automatically resolve it from the current session. You can also provide the actual claim_id if you have it. If no claim exists yet, the system will automatically create a draft claim.',
-          },
-          question_id: {
-            type: 'string',
-            description: 'The question ID being answered',
-          },
-          answer_text: {
-            type: 'string',
-            description: 'Text answer (for text fields)',
-          },
-          answer_number: {
-            type: 'number',
-            description: 'Numeric answer (for number fields)',
-          },
-          answer_date: {
-            type: 'string',
-            description: 'Date answer in ISO format (for date fields)',
-          },
-          answer_select: {
-            type: 'string',
-            description: 'Selected option (for select fields)',
-          },
-          answer_file_ids: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of file IDs (for file fields)',
-          },
-        },
-        required: ['question_id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'validate_answers',
-      description: 'Validate all collected answers against configured rules for the coverage type. **MANDATORY**: Call this IMMEDIATELY after each save_answer. Returns validation results including errors and warnings. If errors exist, present them to user and ask for corrections before proceeding.',
-      parameters: {
-        type: 'object',
-        properties: {
-          coverage_type_id: {
-            type: 'string',
-            description: 'The coverage type ID',
-          },
-          answers: {
-            type: 'object',
-            description: 'Object mapping question IDs to their answers',
-            additionalProperties: true,
-          },
-        },
-        required: ['coverage_type_id', 'answers'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'extract_document_info',
-      description: '**RARELY NEEDED - DO NOT USE FOR IMAGES** - Re-process a document manually. Most documents (especially PDFs) are automatically processed when uploaded - you will receive processing results in the message, NOT raw file paths. **IMAGES (PNG, JPEG, etc.) are shown to you via vision API - analyze them visually and extract information directly. Do NOT call this tool for images.** Only use this tool if you explicitly need to re-process a PDF document that was already processed. When calling this tool, you MUST provide the actual document path (e.g., "af16c23b-135a-4e69-b994-dad7ed3d315c/1768756108711-filename.pdf" - with actual UUID and timestamp) and a valid claim ID (UUID format), NOT placeholders like "file_path", "userId/timestamp-receipt.png", or "session_id". **If you do not have the actual path from the upload message, do NOT call this tool.** Validates document type, extracts text/data, and checks for authenticity. **CRITICAL VALIDATION CHECKING**: After calling this tool, check the `validation` object in the response. It contains `isRelevant`, `contextMatches`, and `isValid` flags. If ANY of these are `false`, DO NOT save extracted info - instead politely ask the user to reupload the correct document with an explanation based on the `errors` array. Only proceed with saving extracted info if all validation flags are `true`. IMPORTANT: After calling this tool, you MUST provide a response to the user summarizing what was extracted or why validation failed.',
-      parameters: {
-        type: 'object',
-        properties: {
-          document_path: {
-            type: 'string',
-            description: 'The actual file path of the document to process (e.g., "userId/timestamp-filename.pdf"). **CRITICAL**: You MUST provide the actual path from the upload message, NOT placeholders like "file_path" or "path_to_receipt". If you do not have the actual path, do NOT call this tool - documents are automatically processed when uploaded.',
-          },
-          document_type: {
-            type: 'string',
-            description: 'Expected document type (e.g., receipt, invoice, medical_report)',
-          },
-          claim_id: {
-            type: 'string',
-            description: 'The actual claim ID (UUID format) this document belongs to. **CRITICAL**: You MUST provide a valid UUID, NOT placeholders like "session_id" or "claim_id". If you do not have the actual claim ID, do NOT call this tool - documents are automatically processed when uploaded.',
-          },
-        },
-        required: ['document_path', 'claim_id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'save_extracted_info',
-      description: 'Save extracted information from documents to the claim. Stores structured data that can be used for claim processing.',
-      parameters: {
-        type: 'object',
-        properties: {
-          claim_id: {
-            type: 'string',
-            description: 'The claim ID',
-          },
-          field_name: {
-            type: 'string',
-            description: 'The name of the field (e.g., amount, date, merchant_name)',
-          },
-          field_value: {
-            type: 'object',
-            description: 'The extracted value (can be string, number, date, etc.)',
-            additionalProperties: true,
-          },
-          confidence: {
-            type: 'string',
-            description: 'Confidence level: high, medium, low',
-            enum: ['high', 'medium', 'low'],
-          },
-          source: {
-            type: 'string',
-            description: 'Source of extraction (e.g., document_path, ocr, ai_analysis)',
-          },
-        },
-        required: ['claim_id', 'field_name', 'field_value'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'prepare_claim_summary',
-      description: 'Generate a comprehensive summary of the claim before finalization. Collects all answers, extracted information, coverage types, and policy information. Returns a formatted summary that should be presented to the user for confirmation before creating the claim. **MANDATORY**: Call this BEFORE create_claim and display the ENTIRE summary to the user. **CRITICAL**: You MUST display the ENTIRE summary text returned by this tool - do NOT summarize, truncate, or modify it. Show the complete summary exactly as returned in the formatted_summary field. The summary MUST include: incident description, coverage types, all answers to questions, all extracted information, and policy details. You MUST present this summary clearly to the user before asking for confirmation.',
-      parameters: {
-        type: 'object',
-        properties: {
-          session_id: {
-            type: 'string',
-            description: 'The chat session ID. **CRITICAL**: This is automatically provided by the system - you should NOT pass "session_id" as a literal string. If you do not have the actual session ID, the system will auto-inject it. The session_id must be a valid UUID format.',
-          },
-        },
-        required: ['session_id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'create_claim',
-      description: 'Finalize the claim after all information is collected and validated. IMPORTANT: A draft claim is usually already created during categorization. This function automatically reads extracted information, claim answers, and user policies to populate all claim fields including incident_date, incident_location, incident_type, total_claimed_amount, claim_summary, and ai_analysis. It updates the existing draft claim from "draft" to "pending" status. Sets status to pending and links to the chat session. Returns JSON string: {"success":true,"data":{"claimId":"<UUID>","claimNumber":"CLM-XXXXX-XXXX","status":"pending"}}. CRITICAL: You MUST parse this JSON, extract data.claimId (UUID format like "7f6be445-4698-4845-a4ac-6b08a78a5908") and data.claimNumber (format like "CLM-MKBT3FJE-8868") EXACTLY as returned. DO NOT make up values like "CLAIM12345" or "FC-78910" - these are WRONG. Use the values EXACTLY as provided in the tool response. After providing the claim details, inform the user the chat session is now closed. RECOMMENDED: Call get_extracted_info before this to review collected data.',
-      parameters: {
-        type: 'object',
-        properties: {
-          session_id: {
-            type: 'string',
-            description: 'The chat session ID',
-          },
-          coverage_type_ids: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of coverage type IDs for this claim',
-          },
-          incident_description: {
-            type: 'string',
-            description: 'Description of the incident',
-          },
-          incident_date: {
-            type: 'string',
-            description: 'Date of the incident in ISO format',
-          },
-          incident_location: {
-            type: 'string',
-            description: 'Location where the incident occurred',
-          },
-          incident_type: {
-            type: 'string',
-            description: 'Type of incident (e.g., theft, accident, medical_emergency)',
-          },
-          total_claimed_amount: {
-            type: 'number',
-            description: 'Total amount being claimed',
-          },
-          currency: {
-            type: 'string',
-            description: 'Currency code (e.g., USD, EUR)',
-          },
-          policy_id: {
-            type: 'string',
-            description: 'The policy ID this claim is for (optional)',
-          },
-        },
-        required: [
-          'session_id',
-          'coverage_type_ids',
-          'incident_description',
-          'incident_date',
-          'incident_location',
-          'incident_type',
-          'total_claimed_amount',
-        ],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'update_claim_stage',
-      description: 'Update the current stage of the claim intake process.',
-      parameters: {
-        type: 'object',
-        properties: {
-          session_id: {
-            type: 'string',
-            description: 'The chat session ID',
-          },
-          stage: {
-            type: 'string',
-            description: 'The new stage',
-            enum: [
-              'initial_contact',
-              'categorization',
-              'questioning',
-              'document_collection',
-              'validation',
-              'claim_creation',
-            ],
-          },
-        },
-        required: ['session_id', 'stage'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
       name: 'detect_tone',
-      description: 'Analyze the emotional tone of the user message to adjust response style. Returns tone classification (frustrated, anxious, calm, etc.) and suggested response style.',
+      description: 'Analyze the emotional tone of the user message to adjust response style.',
       parameters: {
         type: 'object',
         properties: {
@@ -508,7 +306,7 @@ export const adminTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_claim_details',
-      description: 'Get full claim information including answers, documents, extracted information, and notes.',
+      description: 'Get full claim information including answers, documents, and notes.',
       parameters: {
         type: 'object',
         properties: {
@@ -544,52 +342,6 @@ export const adminTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
         },
         required: ['claim_id', 'status'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_admin_note',
-      description: 'Add an admin note to the claim for internal tracking.',
-      parameters: {
-        type: 'object',
-        properties: {
-          claim_id: {
-            type: 'string',
-            description: 'The claim ID',
-          },
-          content: {
-            type: 'string',
-            description: 'The note content',
-          },
-          note_type: {
-            type: 'string',
-            description: 'Type of note (e.g., review, follow_up, decision)',
-          },
-        },
-        required: ['claim_id', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'request_additional_info',
-      description: 'Request additional information from the user for a claim.',
-      parameters: {
-        type: 'object',
-        properties: {
-          claim_id: {
-            type: 'string',
-            description: 'The claim ID',
-          },
-          requested_info: {
-            type: 'string',
-            description: 'Description of what information is needed',
-          },
-        },
-        required: ['claim_id', 'requested_info'],
       },
     },
   },

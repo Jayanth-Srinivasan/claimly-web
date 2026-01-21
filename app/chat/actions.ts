@@ -17,7 +17,7 @@ import {
 import type { ChatSession, Message } from '@/types/chat'
 import { createOpenAIClient, getSystemPrompt, chatCompletion } from '@/lib/ai/openai-client'
 import { getToolsForMode } from '@/lib/ai/tools'
-import { handleToolCall, handleExtractDocumentInfo } from '@/lib/ai/tool-handlers'
+import { handleToolCall } from '@/lib/ai/tool-handlers'
 
 /**
  * Create a new claim mode chat session
@@ -219,13 +219,18 @@ export async function processPolicyMessageAction(
       },
     ]
 
-    // Add conversation history (last 20 messages to avoid token limits)
-    const recentMessages = messages.slice(-20)
+    // Add conversation history (last 12 messages to reduce token usage)
+    const recentMessages = messages.slice(-12)
     for (const msg of recentMessages) {
       if (msg.role === 'user' || msg.role === 'assistant') {
+        // Truncate very long messages to max 500 characters to reduce token usage
+        let content = msg.content
+        if (typeof content === 'string' && content.length > 500) {
+          content = content.substring(0, 500) + '... [truncated]'
+        }
         openAIMessages.push({
           role: msg.role,
-          content: msg.content,
+          content: content,
         })
       }
     }
@@ -427,18 +432,23 @@ export async function processChatMessageAction(
       },
     ]
 
-    // Add conversation history (last 20 messages to avoid token limits)
+    // Add conversation history (last 12 messages to reduce token usage)
     // IMPORTANT: Only include 'user' and 'assistant' messages from history
     // Tool messages should NOT be included in history - they're only used within a single API call iteration
-    const recentMessages = messages.slice(-20)
+    const recentMessages = messages.slice(-12)
     for (const msg of recentMessages) {
       // Only include user and assistant messages - never include tool messages in history
       // Double-check role to be absolutely safe
       if (msg.role === 'user' || msg.role === 'assistant') {
+        // Truncate very long messages to max 500 characters to reduce token usage
+        let content = msg.content
+        if (typeof content === 'string' && content.length > 500) {
+          content = content.substring(0, 500) + '... [truncated]'
+        }
         // For history, just use text content (images from history are already processed)
         openAIMessages.push({
           role: msg.role,
-          content: msg.content,
+          content: content,
         })
       }
       // Explicitly skip any tool messages - they should not be in conversation history
@@ -479,116 +489,8 @@ export async function processChatMessageAction(
       const imageUrls = fileUrls.filter(f => f.type === 'image').map(f => f.url)
       const documentPaths = fileUrls.filter(f => f.type !== 'image').map(f => f.fileId)
       
-      // Auto-process PDF documents if in claim mode (before AI sees them)
-      const documentProcessingResults: Array<{
-        path: string
-        success: boolean
-        validated: boolean
-        errors: string[]
-        extractedInfo?: Record<string, unknown>
-      }> = []
-      
-      if (mode === 'claim' && documentPaths.length > 0) {
-        console.log(`[processChatMessageAction] Auto-processing ${documentPaths.length} document(s) in claim mode before AI sees them`)
-        
-        // Get claim ID from session or intake state
-        let claimId: string | null = session.claim_id || null
-        
-        if (!claimId) {
-          // Try to get from intake state
-          try {
-            const { getIntakeStateBySession } = await import('@/lib/supabase/claim-intake-state')
-            const intakeState = await getIntakeStateBySession(sessionId)
-            claimId = intakeState?.claim_id || null
-          } catch (err) {
-            console.warn('[processChatMessageAction] Could not get claim from intake state:', err)
-          }
-          
-          // If still no claim ID, try from chat_sessions directly
-          if (!claimId) {
-            const { getClaimBySessionId } = await import('@/lib/supabase/claims')
-            try {
-              const claim = await getClaimBySessionId(sessionId)
-              claimId = claim?.id || null
-            } catch (err) {
-              console.warn('[processChatMessageAction] Could not get claim from session:', err)
-            }
-          }
-        }
-        
-        if (claimId) {
-          console.log(`[processChatMessageAction] Found claim ID: ${claimId}, processing documents`)
-          
-          // Process each document
-          for (const docPath of documentPaths) {
-            try {
-              // Determine document type from file extension
-              const ext = docPath.split('.').pop()?.toLowerCase() || ''
-              let docType = 'document'
-              if (ext === 'pdf') docType = 'receipt'
-              else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) docType = 'receipt'
-              
-              console.log(`[processChatMessageAction] Processing document: ${docPath}, type: ${docType}`)
-              
-              // Call handleExtractDocumentInfo to process the document
-              const result = await handleExtractDocumentInfo(docPath, claimId, docType)
-              
-              if (result.success && result.data && typeof result.data === 'object' && 'validation' in result.data && 'extraction' in result.data) {
-                const validation = (result.data as { validation?: any; extraction?: any }).validation
-                const extraction = (result.data as { validation?: any; extraction?: any }).extraction
-                
-                const processingResult = {
-                  path: docPath,
-                  success: true,
-                  validated: validation?.isValid === true && 
-                             validation?.isRelevant === true && 
-                             validation?.contextMatches === true,
-                  errors: validation?.errors || [],
-                  extractedInfo: extraction?.extractedEntities || {},
-                }
-                
-                documentProcessingResults.push(processingResult)
-                
-                console.log(`[processChatMessageAction] Document processed - Path: ${docPath}, Validated: ${processingResult.validated}, Errors: ${processingResult.errors.length}`)
-              } else {
-                // Processing failed
-                documentProcessingResults.push({
-                  path: docPath,
-                  success: false,
-                  validated: false,
-                  errors: [result.error || 'Failed to process document'],
-                })
-                console.error(`[processChatMessageAction] Document processing failed - Path: ${docPath}, Error: ${result.error}`)
-              }
-            } catch (err) {
-              // Exception during processing
-              const errorMessage = err instanceof Error ? err.message : 'Unknown error during processing'
-              documentProcessingResults.push({
-                path: docPath,
-                success: false,
-                validated: false,
-                errors: [errorMessage],
-              })
-              console.error(`[processChatMessageAction] Exception processing document - Path: ${docPath}, Error:`, err)
-            }
-          }
-        } else {
-          console.warn(`[processChatMessageAction] No claim ID found for session ${sessionId}, cannot auto-process documents`)
-          // Mark all documents as unable to process
-          for (const docPath of documentPaths) {
-            documentProcessingResults.push({
-              path: docPath,
-              success: false,
-              validated: false,
-              errors: ['Cannot process document: No claim found. Please start a claim before uploading documents.'],
-            })
-          }
-        }
-      } else if (documentPaths.length > 0 && mode !== 'claim') {
-        // Not in claim mode, don't process but note it
-        console.log(`[processChatMessageAction] Document(s) uploaded but not in claim mode, skipping auto-processing`)
-      }
-      
+      // Document paths for AI to know about (processing is handled by AI via tools)
+
       // Create message content array for OpenAI (supports images)
       const messageContent: Array<
         | { type: 'text'; text: string }
@@ -614,55 +516,15 @@ export async function processChatMessageAction(
         const imageFilePaths = fileUrls.filter(f => f.type === 'image').map(f => f.fileId)
         messageContent.push({
           type: 'text',
-          text: `\n\n[User has uploaded ${imageUrls.length} image(s). Images are visible to you via vision API. Please analyze them visually - extract information, validate the document type matches the claim, and confirm if dates/amounts/locations match the claim context. After analyzing, call save_extracted_info for each piece of information you extract, and then provide a confirmation to the user: "I've analyzed your document and extracted the following information: [list what you found]. This information has been saved to your claim." File paths: ${imageFilePaths.join(', ')}]`,
+          text: `\n\n[User has uploaded ${imageUrls.length} image(s). Images are visible to you via vision API. Please analyze them visually and extract relevant information for the claim. File paths: ${imageFilePaths.join(', ')}. Use upload_document tool to record these files.]`,
         })
       }
-      
-      // Add text about document processing results (instead of asking AI to process)
-      if (documentProcessingResults.length > 0) {
-        const processingSummary: string[] = []
-        
-        for (let i = 0; i < documentProcessingResults.length; i++) {
-          const result = documentProcessingResults[i]
-          const docNum = i + 1
-          
-          if (result.success && result.validated) {
-            // Successfully processed and validated
-            const extractedInfo = result.extractedInfo || {}
-            const extractedKeys = Object.keys(extractedInfo)
-            let extractedSummary = ''
-            if (extractedKeys.length > 0) {
-              // Include actual values, not just keys
-              const extractedDetails = extractedKeys.slice(0, 5).map(key => {
-                const value = extractedInfo[key]
-                const displayValue = typeof value === 'string' && value.length > 30 
-                  ? `${value.substring(0, 30)}...` 
-                  : String(value || '')
-                return `${key}: ${displayValue}`
-              }).join(', ')
-              extractedSummary = ` Extracted: ${extractedDetails}${extractedKeys.length > 5 ? '...' : ''}`
-            }
-            processingSummary.push(`Document ${docNum} - Successfully processed and validated.${extractedSummary}`)
-          } else if (result.success && !result.validated) {
-            // Processed but validation failed
-            const errorText = result.errors.length > 0 ? ` ${result.errors[0]}` : 'Validation failed'
-            processingSummary.push(`Document ${docNum} - Processed but validation failed:${errorText}`)
-          } else {
-            // Processing failed
-            const errorText = result.errors.length > 0 ? ` ${result.errors[0]}` : 'Processing failed'
-            processingSummary.push(`Document ${docNum} - Processing failed:${errorText}`)
-          }
-        }
-        
+
+      // Add notification for documents
+      if (documentPaths.length > 0 && mode === 'claim') {
         messageContent.push({
           type: 'text',
-          text: `\n\n[User uploaded ${documentProcessingResults.length} document(s). Automatic processing completed:\n${processingSummary.join('\n')}\n\nPlease respond to the user about the document processing results. If validation failed, politely ask them to upload the correct document type.]`,
-        })
-      } else if (documentPaths.length > 0) {
-        // Documents uploaded but not processed (e.g., not in claim mode)
-        messageContent.push({
-          type: 'text',
-          text: `\n\n[User has uploaded ${documentPaths.length} document(s): ${documentPaths.join(', ')}. Documents will be processed when a claim is started.]`,
+          text: `\n\n[User uploaded ${documentPaths.length} document(s): ${documentPaths.join(', ')}. Use upload_document tool to record these files for the claim.]`,
         })
       }
       
@@ -808,9 +670,65 @@ export async function processChatMessageAction(
           // Execute tool
           try {
             const result = await handleToolCall(toolName, toolArgs, user.id, sessionId)
+            const resultJson = JSON.stringify(result)
+            
+            // Summarize large tool responses to reduce token usage
+            let optimizedResult = resultJson
+            if (resultJson.length > 1000) {
+              try {
+                const parsed = JSON.parse(resultJson)
+                if (parsed.success && parsed.data) {
+                  // Create summary based on tool type
+                  if (toolName === 'get_coverage_questions' && Array.isArray(parsed.data)) {
+                    // Only include question IDs and first question text
+                    const summary = parsed.data.slice(0, 5).map((q: any) => ({
+                      id: q.id,
+                      question_text: q.question_text?.substring(0, 100),
+                    }))
+                    optimizedResult = JSON.stringify({
+                      success: true,
+                      data: summary,
+                      total: parsed.data.length,
+                      truncated: parsed.data.length > 5,
+                    })
+                  } else if (toolName === 'validate_answers' && parsed.data) {
+                    // Only include pass/fail and error count
+                    optimizedResult = JSON.stringify({
+                      success: true,
+                      data: {
+                        passed: parsed.data.passed,
+                        errors: parsed.data.errors?.length || 0,
+                        warnings: parsed.data.warnings?.length || 0,
+                      },
+                    })
+                  } else if (Array.isArray(parsed.data)) {
+                    // Truncate large arrays
+                    const truncated = parsed.data.slice(0, 5)
+                    optimizedResult = JSON.stringify({
+                      success: true,
+                      data: truncated,
+                      total: parsed.data.length,
+                      truncated: parsed.data.length > 5,
+                    })
+                  } else if (typeof parsed.data === 'object' && parsed.data !== null) {
+                    // For objects, keep only essential fields
+                    const essential: any = { success: true }
+                    if ('passed' in parsed.data) essential.data = { passed: parsed.data.passed }
+                    else if ('claimId' in parsed.data) essential.data = { claimId: parsed.data.claimId }
+                    else if ('claim_id' in parsed.data) essential.data = { claim_id: parsed.data.claim_id }
+                    else essential.data = { ...parsed.data }
+                    optimizedResult = JSON.stringify(essential)
+                  }
+                }
+              } catch (e) {
+                // If parsing fails, just truncate the string
+                optimizedResult = resultJson.substring(0, 1000) + '... [truncated]'
+              }
+            }
+            
             toolResults.push({
               role: 'tool',
-              content: JSON.stringify(result),
+              content: optimizedResult,
               tool_call_id: toolCall.id,
             })
           } catch (error) {
@@ -852,69 +770,9 @@ export async function processChatMessageAction(
       content: finalResponse,
     })
     
-    // Verify if documents/images were processed and saved (only for claim mode with files)
+    // Log document uploads for debugging
     if (mode === 'claim' && attachedFileIds && attachedFileIds.length > 0) {
-      try {
-        console.log(`[processChatMessageAction] Verifying document processing - checking database for ${attachedFileIds.length} file(s)`)
-        
-        // Get claim ID to check documents
-        let claimId: string | null = session.claim_id || null
-        if (!claimId) {
-          const { getIntakeStateBySession } = await import('@/lib/supabase/claim-intake-state')
-          const intakeState = await getIntakeStateBySession(sessionId)
-          claimId = intakeState?.claim_id || null
-        }
-        
-        if (claimId) {
-          // Check if documents were saved for the uploaded file paths
-          const { data: savedDocuments, error: docsError } = await supabase
-            .from('claim_documents')
-            .select('id, file_path, file_name, processing_status, extracted_entities, uploaded_at')
-            .eq('claim_id', claimId)
-            .in('file_path', attachedFileIds)
-          
-          if (docsError) {
-            console.error(`[processChatMessageAction] Error checking saved documents:`, docsError)
-          } else {
-            const savedCount = savedDocuments?.length || 0
-            const savedPaths = savedDocuments?.map(d => d.file_path) || []
-            const notSaved = attachedFileIds.filter(path => !savedPaths.includes(path))
-            
-            console.log(`[processChatMessageAction] Document verification - Uploaded: ${attachedFileIds.length}, Saved: ${savedCount}, Not saved: ${notSaved.length}`)
-            if (savedCount > 0) {
-              savedDocuments?.forEach(doc => {
-                console.log(`[processChatMessageAction] Verified document saved - Path: ${doc.file_path}, Status: ${doc.processing_status}, Has entities: ${Object.keys(doc.extracted_entities || {}).length > 0}`)
-              })
-            }
-            if (notSaved.length > 0) {
-              console.warn(`[processChatMessageAction] Some files were not saved to database:`, notSaved)
-            }
-          }
-          
-          // Check extracted info count
-          const { data: extractedInfo, error: infoError } = await supabase
-            .from('claim_extracted_information')
-            .select('id, field_name, created_at')
-            .eq('claim_id', claimId)
-            .gte('created_at', new Date(Date.now() - 60000).toISOString()) // Last minute
-          
-          if (infoError) {
-            console.error(`[processChatMessageAction] Error checking extracted info:`, infoError)
-          } else {
-            const infoCount = extractedInfo?.length || 0
-            if (infoCount > 0) {
-              console.log(`[processChatMessageAction] Verified extracted info saved - Fields: ${infoCount}, Field names: ${extractedInfo.map(i => i.field_name).join(', ')}`)
-            } else {
-              console.warn(`[processChatMessageAction] No extracted info found for recent document processing`)
-            }
-          }
-        } else {
-          console.warn(`[processChatMessageAction] Cannot verify documents - no claim ID found for session ${sessionId}`)
-        }
-      } catch (verifyError) {
-        console.error(`[processChatMessageAction] Exception during document verification:`, verifyError)
-        // Don't fail the request - verification is informational only
-      }
+      console.log(`[processChatMessageAction] User uploaded ${attachedFileIds.length} file(s) in claim mode`)
     }
 
     return {
@@ -931,7 +789,7 @@ export async function processChatMessageAction(
 }
 
 /**
- * Process admin chat message (stub - to be implemented)
+ * Process admin chat message with AI - includes full claim context
  */
 export async function processAdminChatMessageAction(
   claimId: string,
@@ -939,9 +797,182 @@ export async function processAdminChatMessageAction(
   content: string,
   messageHistory: Array<{ role: string; content: string }>
 ) {
-  return {
-    success: false,
-    error: 'Admin chat processing not yet implemented',
-    content: null as string | null,
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return { success: false, error: 'Unauthorized' }
+    }
+
+    // Verify admin access
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.is_admin) {
+      return { success: false, error: 'Admin access required' }
+    }
+
+    // Fetch claim details
+    const { getClaim } = await import('@/lib/supabase/claims')
+    const claim = await getClaim(claimId)
+
+    if (!claim) {
+      return { success: false, error: 'Claim not found' }
+    }
+
+    // Fetch claim documents
+    const { getClaimDocuments } = await import('@/lib/supabase/claim-documents')
+    const documents = await getClaimDocuments(claimId)
+
+    // Get user profile for customer info
+    const { data: customerProfile } = await supabase
+      .from('profiles')
+      .select('email, full_name')
+      .eq('id', claim.user_id)
+      .single()
+
+    // Ensure chat session exists
+    let sessionId = claim.chat_session_id
+    if (!sessionId) {
+      // Create a new chat session for admin interactions
+      const newSession = await createChatSession(claim.user_id, `Admin Review: ${claim.claim_number}`)
+      sessionId = newSession.id
+      
+      // Update claim with session ID
+      const { updateClaim } = await import('@/lib/supabase/claims')
+      await updateClaim(claimId, { chat_session_id: sessionId })
+    }
+
+    // Build system prompt with full claim context
+    const systemPrompt = `You are an expert insurance claim analysis assistant helping an admin review and analyze claims.
+
+**YOUR ROLE:**
+- Help admins understand claim details, validity, and recommend actions
+- Analyze claim information, documents, and customer history
+- Provide professional, accurate, and helpful insights
+- Answer questions about the claim, policy coverage, and next steps
+
+**CURRENT CLAIM CONTEXT:**
+- Claim Number: ${claim.claim_number}
+- Claim ID: ${claim.id}
+- Status: ${claim.status}
+- Claimed Amount: ${claim.currency || 'USD'} ${claim.total_claimed_amount}
+- Incident Type: ${claim.incident_type}
+- Incident Date: ${claim.incident_date}
+- Incident Location: ${claim.incident_location || 'Not specified'}
+- Incident Description: ${claim.incident_description || 'No description provided'}
+- Customer: ${customerProfile?.full_name || customerProfile?.email || 'Unknown'} (${customerProfile?.email || 'No email'})
+- Submitted At: ${claim.submitted_at ? new Date(claim.submitted_at).toLocaleString() : 'Not submitted'}
+- Created At: ${claim.created_at ? new Date(claim.created_at).toLocaleString() : 'Unknown'}
+
+**DOCUMENTS:**
+${documents.length > 0 
+  ? documents.map((doc, idx) => `${idx + 1}. ${doc.file_name} (${doc.file_type}, ${doc.file_size ? `${(doc.file_size / 1024).toFixed(2)} KB` : 'size unknown'})`).join('\n')
+  : 'No documents uploaded'}
+
+**ADDITIONAL CLAIM DATA:**
+${claim.eligibility_status ? `- Eligibility Status: ${claim.eligibility_status}\n` : ''}${claim.priority ? `- Priority: ${claim.priority}\n` : ''}${claim.approved_amount ? `- Approved Amount: ${claim.currency || 'USD'} ${claim.approved_amount}\n` : ''}${claim.deductible ? `- Deductible: ${claim.currency || 'USD'} ${claim.deductible}\n` : ''}${claim.ai_validated !== null ? `- AI Validated: ${claim.ai_validated ? 'Yes' : 'No'}\n` : ''}
+
+**YOUR RESPONSIBILITIES:**
+1. Answer questions about the claim details, status, and history
+2. Analyze claim validity based on the information provided
+3. Review documents and provide insights
+4. Suggest appropriate actions (approve, reject, request more info, etc.)
+5. Help understand policy coverage and claim eligibility
+6. Provide professional, clear, and actionable recommendations
+
+**RESPONSE STYLE:**
+- Be professional, clear, and concise
+- Use specific details from the claim context
+- Provide actionable recommendations when appropriate
+- If you need more information, suggest what should be requested
+- Always be helpful and supportive to the admin
+
+**IMPORTANT:**
+- You have access to full claim context - use it to provide accurate answers
+- Reference specific claim details (numbers, dates, amounts) when relevant
+- If asked about actions, consider the claim status and provide appropriate recommendations
+- Be thorough but concise in your responses`
+
+    // Save admin message to database (mark as admin-only)
+    await addMessageToSession(sessionId, {
+      role: 'admin',
+      content,
+      admin_only: true,
+    })
+
+    // Prepare messages for OpenAI
+    const openAIMessages: Array<{
+      role: 'system' | 'user' | 'assistant' | 'tool'
+      content: string | null
+      name?: string
+      tool_call_id?: string
+    }> = [
+      {
+        role: 'system',
+        content: systemPrompt,
+      },
+    ]
+
+    // Add conversation history (last 12 messages)
+    const recentHistory = messageHistory.slice(-12)
+    for (const msg of recentHistory) {
+      if (msg.role === 'admin' || msg.role === 'user') {
+        openAIMessages.push({
+          role: 'user',
+          content: msg.content,
+        })
+      } else if (msg.role === 'assistant' || msg.role === 'ai') {
+        openAIMessages.push({
+          role: 'assistant',
+          content: msg.content,
+        })
+      }
+    }
+
+    // Add current admin message
+    openAIMessages.push({
+      role: 'user',
+      content,
+    })
+
+    // Initialize OpenAI client
+    const { createOpenAIClient, chatCompletion } = await import('@/lib/ai/openai-client')
+    const client = createOpenAIClient()
+
+    // Call OpenAI (no tools needed for admin chat - just analysis)
+    const response = await chatCompletion(client, openAIMessages, [])
+
+    const aiResponse = response.choices[0]?.message?.content || ''
+
+    if (!aiResponse) {
+      return { success: false, error: 'No response from AI' }
+    }
+
+    // Save AI response to database (mark as admin-only)
+    await addMessageToSession(sessionId, {
+      role: 'assistant',
+      content: aiResponse,
+      admin_only: true,
+    })
+
+    return {
+      success: true,
+      content: aiResponse,
+    }
+  } catch (error) {
+    console.error('Error processing admin chat message:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to process message',
+      content: null,
+    }
   }
 }

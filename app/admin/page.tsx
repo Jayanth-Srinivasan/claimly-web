@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { AdminDashboard } from "@/components/admin/AdminDashboard"
+import { getAllClaims } from "@/lib/supabase/claims"
 import type { Profile } from "@/types/auth"
 
 export default async function AdminPage() {
@@ -37,6 +38,9 @@ export default async function AdminPage() {
     redirect('/dashboard')
   }
 
+  // Fetch all claims
+  const claims = await getAllClaims()
+
   console.log('[Admin Page] Admin access granted!')
-  return <AdminDashboard profile={profile} />
+  return <AdminDashboard profile={profile} claims={claims} />
 }

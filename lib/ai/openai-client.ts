@@ -231,20 +231,29 @@ WORKFLOW (Follow Strictly):
 
 3. For EVERY user message during questioning (STRICT WORKFLOW):
    - **FIRST**: Call get_intake_state to check current state and database_questions_asked
-   - **SECOND**: Call get_coverage_questions to get ALL database questions
-   - **THIRD**: Find the first question (by order_index) NOT in database_questions_asked
-   - **FOURTH**: If user just provided an answer:
-     * Call save_answer with claim_id=session_id, question_id, and the answer
-     * **MANDATORY**: IMMEDIATELY call validate_answers with coverage_type_id and all collected answers
-     * If validation fails, present errors to user and ask for corrections
-     * Re-validate after corrections before proceeding
-     * Call update_intake_state to add question_id to database_questions_asked array
-   - **FIFTH**: Ask the NEXT unanswered question using EXACT question_text from database
-   - **ADAPTIVE QUESTIONING**: After user answers a DB question, analyze if follow-up needed
-     * Examples: "$2000" → ask "What items were in the baggage?", "laptop" → ask "Do you have a receipt?"
-     * Ask these naturally - do NOT add to database_questions_asked
-     * Save important adaptive answers using save_extracted_info
-   - **CRITICAL**: Continue until ALL database questions are answered before proceeding to documents
+   - **STAGE CHECK**: If current_stage is 'claim_creation', SKIP questioning workflow:
+     * User has already seen summary and is confirming
+     * Check if they're confirming (yes/confirm/proceed/correct/finalize/looks good/that's correct/etc.)
+     * If confirming: Call create_claim immediately, then update_claim_stage to 'completed'
+     * If not confirming (asking for changes): Ask what needs to be corrected
+     * **DO NOT ask database questions when in 'claim_creation' stage**
+   - **IF stage is 'questioning' or 'document_collection'**: Continue normal flow:
+     * **SECOND**: Call get_coverage_questions to get ALL database questions
+     * **THIRD**: Find the first question (by order_index) NOT in database_questions_asked
+     * **FOURTH**: If user just provided an answer:
+       - Call save_answer with claim_id=session_id, question_id, and the answer
+       - **MANDATORY**: IMMEDIATELY call validate_answers with coverage_type_id and all collected answers
+       - If validation fails, present errors to user and ask for corrections
+       - Re-validate after corrections before proceeding
+       - Call update_intake_state to add question_id to database_questions_asked array
+     * **FIFTH**: Ask the NEXT unanswered question using EXACT question_text from database
+     * **ADAPTIVE QUESTIONING**: After user answers a DB question, analyze if follow-up needed
+       - Examples: "$2000" → ask "What items were in the baggage?", "laptop" → ask "Do you have a receipt?"
+       - Ask these naturally - do NOT add to database_questions_asked
+       - **CRITICAL - TOOL USAGE**: Use save_extracted_info for adaptive answers (NOT save_answer)
+       - Adaptive questions don't have question_ids - use save_extracted_info(field_name, field_value)
+       - save_answer is ONLY for database questions from get_coverage_questions
+     * **CRITICAL**: Continue until ALL database questions are answered before proceeding to documents
 
 4. When user uploads images/documents:
    - **IMAGES (PNG, JPEG, etc.)**: You can SEE the images directly in the message - they are included as image content via vision API
@@ -262,14 +271,21 @@ WORKFLOW (Follow Strictly):
    - If invalid: ask for corrections
 
 6. When ready to finalize claim (when ALL information is ready):
-   - **IMMEDIATELY** call prepare_claim_summary with session_id (this reads all info)
-   - **CRITICAL**: Display the ENTIRE summary returned by the tool - do NOT summarize or truncate it
-   - Present summary: "Here's a summary of your claim. Please review and confirm if everything is correct:\\n\\n[Display COMPLETE summary from tool - copy it entirely]"
-   - **Ask user to confirm**: "Please review the summary above. If everything looks correct, please confirm and I'll proceed with finalizing your claim."
-   - **DO NOT call create_claim yet** - wait for user's explicit confirmation
-   - **After user confirms** (says "yes", "confirm", "correct", "proceed", "finalize"), THEN call create_claim
-   - Display claim ID and claim number from create_claim response
-   - Inform user that claim is submitted and chat is closed
+   - **STEP 1**: Call update_claim_stage to set stage='claim_creation' (CRITICAL - prevents workflow restart)
+   - **STEP 2**: Call prepare_claim_summary with session_id (this reads all info)
+   - **STEP 3**: Display the ENTIRE summary returned by the tool - do NOT summarize or truncate it
+   - **STEP 4**: Present summary: "Here's a summary of your claim. Please review and confirm if everything is correct:\\n\\n[Display COMPLETE summary from tool - copy it entirely]"
+   - **STEP 5**: Ask user to confirm: "Please review the summary above. If everything looks correct, please confirm and I'll proceed with finalizing your claim."
+   - **STEP 6**: DO NOT call create_claim yet - wait for user's explicit confirmation
+   - **STEP 7**: When next message arrives:
+     * get_intake_state will show stage='claim_creation'
+     * This triggers confirmation flow (not questioning flow)
+     * Check if user confirms (yes/confirm/proceed/correct/finalize/looks good/that's correct/etc.)
+     * If confirming: Call create_claim immediately
+     * If not confirming: Ask what needs to be corrected
+   - **STEP 8**: After create_claim succeeds, call update_claim_stage to set stage='completed'
+   - **STEP 9**: Display claim ID and claim number from create_claim response
+   - **STEP 10**: Inform user that claim is submitted and chat is closed
    - **MANDATORY**: The entire summary MUST be displayed - do NOT truncate or summarize it
    - **CRITICAL**: Only create the claim when ALL info is ready AND user has confirmed
    - **ABSOLUTELY FORBIDDEN**: Do NOT provide summaries during questioning - only at finalization
@@ -325,6 +341,52 @@ RESPONSE STYLE:
 
 Always be thorough, professional, and supportive.`
   }
+}
+
+/**
+ * Estimate token count (rough approximation: 1 token ≈ 4 characters)
+ */
+function estimateTokens(messages: any[], tools?: any[]): number {
+  let tokenCount = 0
+  
+  // Count tokens in messages
+  for (const msg of messages) {
+    if (typeof msg.content === 'string') {
+      tokenCount += Math.ceil(msg.content.length / 4)
+    } else if (Array.isArray(msg.content)) {
+      for (const item of msg.content) {
+        if (item.type === 'text' && item.text) {
+          tokenCount += Math.ceil(item.text.length / 4)
+        } else if (item.type === 'image_url') {
+          // Images use more tokens (rough estimate: 85 tokens per image for base64)
+          tokenCount += 85
+        }
+      }
+    }
+    // Tool calls add tokens
+    if (msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        tokenCount += Math.ceil((tc.function?.name?.length || 0) / 4)
+        tokenCount += Math.ceil((tc.function?.arguments?.length || 0) / 4)
+      }
+    }
+  }
+  
+  // Count tokens in tool definitions
+  if (tools) {
+    for (const tool of tools) {
+      if (tool.function) {
+        tokenCount += Math.ceil((tool.function.name?.length || 0) / 4)
+        tokenCount += Math.ceil((tool.function.description?.length || 0) / 4)
+        if (tool.function.parameters) {
+          const paramsStr = JSON.stringify(tool.function.parameters)
+          tokenCount += Math.ceil(paramsStr.length / 4)
+        }
+      }
+    }
+  }
+  
+  return tokenCount
 }
 
 /**
@@ -438,6 +500,14 @@ export async function chatCompletion(
       return baseMessage as OpenAI.Chat.Completions.ChatCompletionMessageParam
     }
   })
+
+  // Estimate tokens before API call
+  const estimatedTokens = estimateTokens(openAIMessages, tools)
+  console.log(`[chatCompletion] Estimated tokens: ${estimatedTokens.toLocaleString()}`)
+  
+  if (estimatedTokens > 20000) {
+    console.warn(`[chatCompletion] WARNING: High token usage (${estimatedTokens.toLocaleString()} tokens). Consider reducing message history or prompt size.`)
+  }
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o', // Using GPT-4o for better tool calling and vision support

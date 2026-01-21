@@ -8,7 +8,6 @@ import {
   XCircle,
   Clock,
   AlertCircle,
-  MessageCircle,
   DollarSign,
   FileText,
   Image as ImageIcon,
@@ -19,12 +18,14 @@ import { ClaimChat } from './ClaimChat'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { Profile } from '@/types/auth'
+import { updateClaimStatusAction } from '@/app/admin/claims/actions'
 
 interface ClaimMessage {
   id: string
   role: 'customer' | 'admin' | 'ai'
   content: string
   timestamp: Date
+  admin_only?: boolean | null
 }
 
 interface ClaimDocument {
@@ -51,114 +52,6 @@ interface Claim {
   messages: ClaimMessage[]
 }
 
-// Mock data (same as AdminDashboard)
-const mockClaims: Claim[] = [
-  {
-    id: '1',
-    claimNumber: 'CLM-2024-001',
-    customerId: 'user-123',
-    customerName: 'John Doe',
-    customerEmail: 'john@example.com',
-    type: 'travel',
-    status: 'pending',
-    amount: 1500,
-    currency: 'USD',
-    submittedAt: new Date('2024-01-15'),
-    description: 'Flight was delayed by 6 hours due to mechanical issues. Requesting compensation for meals and accommodation as per policy terms.',
-    documents: [
-      { id: 'd1', name: 'boarding-pass.pdf', type: 'application/pdf', url: '/mock/boarding-pass.pdf', uploadedAt: new Date('2024-01-15') },
-      { id: 'd2', name: 'hotel-receipt.jpg', type: 'image/jpeg', url: '/mock/hotel-receipt.jpg', uploadedAt: new Date('2024-01-15') },
-    ],
-    messages: [
-      { id: 'm1', role: 'customer', content: 'My flight was delayed by 6 hours due to mechanical problems. I had to book a hotel for the night and buy meals. I have all the receipts attached.', timestamp: new Date('2024-01-15T10:00:00') },
-      { id: 'm2', role: 'ai', content: 'Based on the claim details, this appears to be a valid travel delay claim. The policy covers delays over 4 hours with accommodation and meal expenses up to $2000. Recommend approval.', timestamp: new Date('2024-01-15T10:30:00') },
-    ],
-  },
-  {
-    id: '2',
-    claimNumber: 'CLM-2024-002',
-    customerId: 'user-456',
-    customerName: 'Sarah Smith',
-    customerEmail: 'sarah@example.com',
-    type: 'baggage',
-    status: 'approved',
-    amount: 800,
-    currency: 'USD',
-    submittedAt: new Date('2024-01-10'),
-    description: 'Checked baggage was lost during international flight. Contains personal items and electronics valued at $800.',
-    documents: [
-      { id: 'd3', name: 'baggage-claim.pdf', type: 'application/pdf', url: '/mock/baggage-claim.pdf', uploadedAt: new Date('2024-01-10') },
-    ],
-    messages: [
-      { id: 'm3', role: 'customer', content: 'My checked baggage was lost during my flight from New York to London. The airline has confirmed it is missing. I had valuable electronics and clothing inside.', timestamp: new Date('2024-01-10T14:00:00') },
-      { id: 'm4', role: 'admin', content: 'Thank you for submitting your claim. I have reviewed your documentation and approved your claim for $800. You should receive payment within 5-7 business days.', timestamp: new Date('2024-01-11T09:00:00') },
-    ],
-  },
-  {
-    id: '3',
-    claimNumber: 'CLM-2024-003',
-    customerId: 'user-789',
-    customerName: 'Michael Johnson',
-    customerEmail: 'michael@example.com',
-    type: 'medical',
-    status: 'under-review',
-    amount: 3500,
-    currency: 'USD',
-    submittedAt: new Date('2024-01-12'),
-    description: 'Required emergency medical treatment while traveling abroad. Hospitalized for 2 days with food poisoning.',
-    documents: [
-      { id: 'd4', name: 'hospital-bill.pdf', type: 'application/pdf', url: '/mock/hospital-bill.pdf', uploadedAt: new Date('2024-01-12') },
-      { id: 'd5', name: 'prescription.jpg', type: 'image/jpeg', url: '/mock/prescription.jpg', uploadedAt: new Date('2024-01-12') },
-      { id: 'd6', name: 'doctors-note.pdf', type: 'application/pdf', url: '/mock/doctors-note.pdf', uploadedAt: new Date('2024-01-12') },
-    ],
-    messages: [
-      { id: 'm5', role: 'customer', content: 'I was hospitalized in Thailand for severe food poisoning. I have attached all medical bills and prescriptions.', timestamp: new Date('2024-01-12T16:00:00') },
-      { id: 'm6', role: 'admin', content: 'Thank you for your submission. We are currently reviewing your medical documents. We may need additional information from the hospital.', timestamp: new Date('2024-01-13T10:00:00') },
-      { id: 'm7', role: 'ai', content: 'Medical claim review: Emergency treatment is covered under the policy. Recommend requesting itemized bill and verification of treatment necessity.', timestamp: new Date('2024-01-13T10:15:00') },
-    ],
-  },
-  {
-    id: '4',
-    claimNumber: 'CLM-2024-004',
-    customerId: 'user-101',
-    customerName: 'Emily Davis',
-    customerEmail: 'emily@example.com',
-    type: 'flight',
-    status: 'rejected',
-    amount: 500,
-    currency: 'USD',
-    submittedAt: new Date('2024-01-08'),
-    description: 'Missed connecting flight due to traffic. Requesting reimbursement for rebooking.',
-    documents: [
-      { id: 'd7', name: 'original-ticket.pdf', type: 'application/pdf', url: '/mock/original-ticket.pdf', uploadedAt: new Date('2024-01-08') },
-    ],
-    messages: [
-      { id: 'm8', role: 'customer', content: 'I missed my connecting flight because of heavy traffic on the way to the airport. Can I get reimbursed for the new ticket I had to buy?', timestamp: new Date('2024-01-08T11:00:00') },
-      { id: 'm9', role: 'admin', content: 'Unfortunately, our policy does not cover missed flights due to traffic or other personal delays. The policy only covers airline-caused delays. Your claim has been rejected.', timestamp: new Date('2024-01-09T09:00:00') },
-    ],
-  },
-  {
-    id: '5',
-    claimNumber: 'CLM-2024-005',
-    customerId: 'user-202',
-    customerName: 'David Wilson',
-    customerEmail: 'david@example.com',
-    type: 'travel',
-    status: 'pending',
-    amount: 2200,
-    currency: 'USD',
-    submittedAt: new Date('2024-01-14'),
-    description: 'Trip cancellation due to family emergency. Requesting refund for non-refundable hotel and flight bookings.',
-    documents: [
-      { id: 'd8', name: 'hotel-booking.pdf', type: 'application/pdf', url: '/mock/hotel-booking.pdf', uploadedAt: new Date('2024-01-14') },
-      { id: 'd9', name: 'flight-confirmation.pdf', type: 'application/pdf', url: '/mock/flight-confirmation.pdf', uploadedAt: new Date('2024-01-14') },
-    ],
-    messages: [
-      { id: 'm10', role: 'customer', content: 'I had to cancel my trip due to a family emergency (my father was hospitalized). I lost money on non-refundable bookings. I have attached all documentation.', timestamp: new Date('2024-01-14T08:00:00') },
-    ],
-  },
-]
-
 const statusConfig = {
   pending: {
     icon: Clock,
@@ -183,20 +76,71 @@ const statusConfig = {
 }
 
 interface ClaimDetailPageProps {
-  claimId: string
+  claimData: {
+    claim: {
+      id: string
+      claim_number: string
+      status: string
+      total_claimed_amount: number
+      currency: string | null
+      submitted_at: string | null
+      created_at: string | null
+      incident_type: string
+      incident_description: string
+      profile: {
+        email: string | null
+        full_name: string | null
+      } | null
+    }
+    documents: Array<{
+      id: string
+      name: string
+      type: string
+      url: string
+      uploadedAt: Date
+    }>
+    messages: Array<{
+      id: string
+      role: 'customer' | 'admin' | 'ai'
+      content: string
+      timestamp: Date
+      admin_only: boolean | null
+    }>
+  }
   profile: Profile
 }
 
-export function ClaimDetailPage({ claimId, profile: _profile }: ClaimDetailPageProps) {
+export function ClaimDetailPage({ claimData, profile: _profile }: ClaimDetailPageProps) {
   const router = useRouter()
-  const [claim, setClaim] = useState<Claim | undefined>(() => {
-    console.log('Looking for claim with ID:', claimId)
-    console.log('Available claim IDs:', mockClaims.map(c => c.id))
-    const foundClaim = mockClaims.find((c) => c.id === claimId)
-    console.log('Found claim:', foundClaim)
-    return foundClaim
+  
+  // Map database status to component status
+  const mapStatus = (status: string): 'pending' | 'approved' | 'rejected' | 'under-review' => {
+    const normalized = status.toLowerCase().replace('_', '-')
+    if (['pending', 'approved', 'rejected', 'under-review'].includes(normalized)) {
+      return normalized as 'pending' | 'approved' | 'rejected' | 'under-review'
+    }
+    return 'pending'
+  }
+
+  // Map database claim to component format
+  const [claim, setClaim] = useState<Claim>(() => {
+    const dbClaim = claimData.claim
+    return {
+      id: dbClaim.id,
+      claimNumber: dbClaim.claim_number,
+      customerId: dbClaim.profile?.email || 'unknown',
+      customerName: dbClaim.profile?.full_name || dbClaim.profile?.email || 'Unknown Customer',
+      customerEmail: dbClaim.profile?.email || '',
+      type: (dbClaim.incident_type as 'travel' | 'medical' | 'baggage' | 'flight') || 'travel',
+      status: mapStatus(dbClaim.status),
+      amount: dbClaim.total_claimed_amount || 0,
+      currency: dbClaim.currency || 'USD',
+      submittedAt: dbClaim.submitted_at ? new Date(dbClaim.submitted_at) : new Date(dbClaim.created_at || Date.now()),
+      description: dbClaim.incident_description || 'No description provided',
+      documents: claimData.documents,
+      messages: claimData.messages,
+    }
   })
-  const [chatMode, setChatMode] = useState<'claimant' | 'ai'>('claimant')
 
   if (!claim) {
     return (
@@ -213,55 +157,79 @@ export function ClaimDetailPage({ claimId, profile: _profile }: ClaimDetailPageP
   const status = statusConfig[claim.status]
   const StatusIcon = status.icon
 
+  const [isLoading, setIsLoading] = useState(false)
+
   const handleSendMessage = async (content: string, _files: File[]) => {
     if (!claim) return
 
+    // Generate unique ID using crypto.randomUUID() for better uniqueness
+    const adminMessageId = crypto.randomUUID()
     const newMessage: ClaimMessage = {
-      id: `m${Date.now()}`,
+      id: adminMessageId,
       role: 'admin',
       content,
       timestamp: new Date(),
+      admin_only: true,
     }
 
-    setClaim({ ...claim, messages: [...claim.messages, newMessage] })
+    // Update local state immediately with admin message
+    setClaim((prevClaim) => ({ ...prevClaim, messages: [...prevClaim.messages, newMessage] }))
+    setIsLoading(true)
 
-    // If in AI mode, get AI response
-    if (chatMode === 'ai') {
-      try {
-        const { processAdminChatMessageAction } = await import('@/app/chat/actions')
-        const messageHistory = claim.messages.map((msg) => ({
-          role: msg.role === 'customer' ? 'user' : msg.role === 'admin' ? 'admin' : 'assistant',
-          content: msg.content,
-        }))
+    // Always call AI for response
+    try {
+      const { processAdminChatMessageAction } = await import('@/app/chat/actions')
+      const messageHistory = claim.messages.map((msg) => ({
+        role: msg.role === 'customer' ? 'user' : msg.role === 'admin' ? 'admin' : 'assistant',
+        content: msg.content,
+      }))
 
-        const result = await processAdminChatMessageAction(
-          claim.id,
-          _profile.id,
-          content,
-          messageHistory
-        )
+      const result = await processAdminChatMessageAction(
+        claim.id,
+        _profile.id,
+        content,
+        messageHistory
+      )
 
-        if (result.success && result.content) {
-          const aiMessage: ClaimMessage = {
-            id: `ai${Date.now()}`,
-            role: 'ai',
-            content: result.content,
-            timestamp: new Date(),
-          }
-
-          setClaim({ ...claim, messages: [...claim.messages, newMessage, aiMessage] })
-        } else {
-          console.error('Failed to get AI response:', result.error)
+      if (result.success && result.content) {
+        // Generate unique ID for AI message
+        const aiMessageId = crypto.randomUUID()
+        const aiMessage: ClaimMessage = {
+          id: aiMessageId,
+          role: 'ai',
+          content: result.content,
+          timestamp: new Date(),
+          admin_only: true,
         }
-      } catch (error) {
-        console.error('Error getting AI response:', error)
+
+        // Only add the AI message, admin message was already added above
+        setClaim((prevClaim) => ({ ...prevClaim, messages: [...prevClaim.messages, aiMessage] }))
+      } else {
+        console.error('Failed to get AI response:', result.error)
       }
+    } catch (error) {
+      console.error('Error getting AI response:', error)
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const handleUpdateStatus = (newStatus: Claim['status']) => {
+  const handleUpdateStatus = async (newStatus: Claim['status']) => {
     if (!claim) return
-    setClaim({ ...claim, status: newStatus })
+    
+    try {
+      const result = await updateClaimStatusAction(claim.id, newStatus)
+      
+      if (result.success) {
+        setClaim({ ...claim, status: newStatus })
+      } else {
+        console.error('Failed to update claim status:', result.error)
+        // You might want to show a toast notification here
+      }
+    } catch (error) {
+      console.error('Failed to update claim status:', error)
+      // You might want to show a toast notification here
+    }
   }
 
   return (
@@ -326,34 +294,6 @@ export function ClaimDetailPage({ claimId, profile: _profile }: ClaimDetailPageP
             )}
           </div>
 
-          {/* Mode Switch */}
-          <div className="flex items-center gap-3 pb-1">
-            <MessageCircle className="h-4 w-4 text-black/40 dark:text-white/40" />
-            <div className="inline-flex items-center gap-1 bg-black/4 dark:bg-white/4 rounded-lg p-1 border border-black/5 dark:border-white/5">
-              <button
-                onClick={() => setChatMode('claimant')}
-                className={cn(
-                  'px-4 py-1.5 rounded-md text-sm font-medium transition-all',
-                  chatMode === 'claimant'
-                    ? 'bg-white dark:bg-black text-black dark:text-white shadow-sm'
-                    : 'text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white'
-                )}
-              >
-                Chat with Claimant
-              </button>
-              <button
-                onClick={() => setChatMode('ai')}
-                className={cn(
-                  'px-4 py-1.5 rounded-md text-sm font-medium transition-all',
-                  chatMode === 'ai'
-                    ? 'bg-white dark:bg-black text-black dark:text-white shadow-sm'
-                    : 'text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white'
-                )}
-              >
-                Chat with AI
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -448,7 +388,7 @@ export function ClaimDetailPage({ claimId, profile: _profile }: ClaimDetailPageP
 
         {/* Right Area: Chat Interface */}
         <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-black">
-          <ClaimChat messages={claim.messages} mode={chatMode} onSendMessage={handleSendMessage} />
+          <ClaimChat messages={claim.messages} onSendMessage={handleSendMessage} isLoading={isLoading} />
         </div>
       </div>
     </div>

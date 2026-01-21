@@ -54,6 +54,136 @@ export async function getUserClaims(userId: string): Promise<Claim[]> {
 }
 
 /**
+ * Get all claims with user profile information (for admin dashboard)
+ */
+export async function getAllClaims(): Promise<Array<Claim & { profile: { email: string | null; full_name: string | null } | null }>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('claims')
+    .select(`
+      *,
+      profile:profiles!claims_user_id_fkey (
+        email,
+        full_name
+      )
+    `)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw new Error(`Failed to fetch all claims: ${error.message}`)
+  }
+
+  return (data || []) as Array<Claim & { profile: { email: string | null; full_name: string | null } | null }>
+}
+
+/**
+ * Get a claim with all related data (profile, documents, messages)
+ */
+export async function getClaimWithDetails(id: string): Promise<{
+  claim: Claim & { profile: { email: string | null; full_name: string | null } | null }
+  documents: Array<{
+    id: string
+    name: string
+    type: string
+    url: string
+    uploadedAt: Date
+  }>
+    messages: Array<{
+      id: string
+      role: 'customer' | 'admin' | 'ai'
+      content: string
+      timestamp: Date
+      admin_only: boolean | null
+    }>
+} | null> {
+  const supabase = await createClient()
+  
+  // Fetch claim with profile
+  const { data: claimData, error: claimError } = await supabase
+    .from('claims')
+    .select(`
+      *,
+      profile:profiles!claims_user_id_fkey (
+        email,
+        full_name
+      )
+    `)
+    .eq('id', id)
+    .single()
+
+  if (claimError) {
+    if (claimError.code === 'PGRST116') {
+      return null
+    }
+    throw new Error(`Failed to fetch claim: ${claimError.message}`)
+  }
+
+  const claim = claimData as Claim & { profile: { email: string | null; full_name: string | null } | null }
+
+  // Fetch documents
+  const { getClaimDocuments } = await import('./claim-documents')
+  const dbDocuments = await getClaimDocuments(id)
+  
+  // Get storage URL for documents
+  const documents = await Promise.all(
+    dbDocuments.map(async (doc) => {
+      let url = doc.file_path
+      try {
+        const { data: urlData, error: urlError } = await supabase.storage
+          .from('claim-documents')
+          .createSignedUrl(doc.file_path, 3600) // 1 hour expiry
+        
+        if (!urlError && urlData?.signedUrl) {
+          url = urlData.signedUrl
+        }
+      } catch (error) {
+        console.error('Failed to create signed URL for document:', doc.id, error)
+        // Fall back to file_path
+      }
+      
+      return {
+        id: doc.id,
+        name: doc.file_name,
+        type: doc.mime_type || doc.file_type || 'application/octet-stream',
+        url,
+        uploadedAt: doc.uploaded_at ? new Date(doc.uploaded_at) : new Date(),
+      }
+    })
+  )
+
+  // Fetch messages from chat session if exists
+  const { getSessionMessages } = await import('./chat-messages')
+  const messages: Array<{
+    id: string
+    role: 'customer' | 'admin' | 'ai'
+    content: string
+    timestamp: Date
+    admin_only: boolean | null
+  }> = []
+
+  if (claim.chat_session_id) {
+    try {
+      const dbMessages = await getSessionMessages(claim.chat_session_id)
+      messages.push(...dbMessages.map((msg) => ({
+        id: msg.id,
+        role: msg.role === 'user' ? 'customer' as const : msg.role === 'admin' ? 'admin' as const : 'ai' as const,
+        content: msg.content,
+        timestamp: new Date(msg.created_at),
+        admin_only: msg.admin_only ?? null,
+      })))
+    } catch (error) {
+      console.error('Failed to fetch messages:', error)
+    }
+  }
+
+  return {
+    claim,
+    documents,
+    messages,
+  }
+}
+
+/**
  * Update a claim
  */
 export async function updateClaim(id: string, updates: ClaimUpdate): Promise<Claim> {

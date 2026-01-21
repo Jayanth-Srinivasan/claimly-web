@@ -7,6 +7,34 @@ export type ClaimAnswerInsert = Database['public']['Tables']['claim_answers']['I
 export type ClaimAnswerUpdate = Database['public']['Tables']['claim_answers']['Update']
 
 /**
+ * Helper function to ensure data is JSON serializable
+ * Converts Sets to Arrays and handles nested objects
+ */
+function ensureSerializable(obj: any): any {
+  if (obj === null || obj === undefined) return obj
+  if (typeof obj !== 'object') return obj
+
+  // Convert Sets to Arrays
+  if (obj instanceof Set) return Array.from(obj)
+
+  // Handle arrays
+  if (Array.isArray(obj)) return obj.map(ensureSerializable)
+
+  // Handle objects
+  const result: any = {}
+  for (const [key, value] of Object.entries(obj)) {
+    if (value instanceof Set) {
+      result[key] = Array.from(value)
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = ensureSerializable(value)
+    } else {
+      result[key] = value
+    }
+  }
+  return result
+}
+
+/**
  * Save an answer to a question
  */
 export async function saveAnswer(data: ClaimAnswerInsert): Promise<ClaimAnswer> {
@@ -42,9 +70,10 @@ export async function saveAnswer(data: ClaimAnswerInsert): Promise<ClaimAnswer> 
     if (data.rule_evaluation_results !== undefined && data.rule_evaluation_results !== null) {
       // Ensure it's a valid JSON-serializable object
       try {
-        updates.rule_evaluation_results = typeof data.rule_evaluation_results === 'string' 
+        const parsed = typeof data.rule_evaluation_results === 'string'
           ? JSON.parse(data.rule_evaluation_results)
           : data.rule_evaluation_results
+        updates.rule_evaluation_results = ensureSerializable(parsed)
       } catch (e) {
         console.warn(`[saveAnswer] Invalid rule_evaluation_results JSON, skipping:`, e)
         // Don't update rule_evaluation_results if it's invalid
@@ -77,13 +106,14 @@ export async function saveAnswer(data: ClaimAnswerInsert): Promise<ClaimAnswer> 
     
     // Ensure rule_evaluation_results is properly formatted
     if (insertData.rule_evaluation_results !== undefined && insertData.rule_evaluation_results !== null) {
-      if (typeof insertData.rule_evaluation_results === 'string') {
-        try {
-          insertData.rule_evaluation_results = JSON.parse(insertData.rule_evaluation_results)
-        } catch (e) {
-          console.warn(`[saveAnswer] Invalid rule_evaluation_results JSON for insert, setting to null:`, e)
-          insertData.rule_evaluation_results = null
-        }
+      try {
+        const parsed = typeof insertData.rule_evaluation_results === 'string'
+          ? JSON.parse(insertData.rule_evaluation_results)
+          : insertData.rule_evaluation_results
+        insertData.rule_evaluation_results = ensureSerializable(parsed)
+      } catch (e) {
+        console.warn(`[saveAnswer] Invalid rule_evaluation_results JSON for insert, setting to null:`, e)
+        insertData.rule_evaluation_results = null
       }
     }
     
