@@ -61,8 +61,8 @@ export function AdminDashboard({ profile, claims: dbClaims }: AdminDashboardProp
           {/* Stats Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label="Total Claims" value={stats.total} icon={Shield} />
-            <StatCard label="Pending" value={stats.pending} icon={Clock} trend={{ value: 12, positive: true }} />
-            <StatCard label="Approved" value={stats.approved} icon={CheckCircle} trend={{ value: 8, positive: true }} />
+            <StatCard label="Pending" value={stats.pending} icon={Clock} />
+            <StatCard label="Approved" value={stats.approved} icon={CheckCircle} />
             <StatCard label="Rejected" value={stats.rejected} icon={XCircle} />
           </div>
 

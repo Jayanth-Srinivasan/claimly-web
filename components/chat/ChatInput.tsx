@@ -165,109 +165,107 @@ export function ChatInput({ mode, onSendMessage, isUploading, allowAttachments =
 
       <div className="border-t border-black/10 dark:border-white/10 bg-white dark:bg-black">
         <div className="max-w-4xl mx-auto p-4 space-y-3">
-        {/* Disabled Message */}
-        {disabled && disabledMessage && (
-          <div className="px-4 py-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-xl text-sm text-blue-900 dark:text-blue-100">
-            {disabledMessage}
-          </div>
-        )}
-
-        {/* Upload Loading State */}
-        {allowAttachments && isUploading && !disabled && (
-          <div className="flex items-center gap-2 px-2 py-1 text-sm text-black/60 dark:text-white/60">
-            <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />
-            <span>Uploading files...</span>
-          </div>
-        )}
-
-        {/* Upload Error */}
-        {allowAttachments && uploadError && !disabled && (
-          <div className="px-2 py-1 text-sm text-red-600 dark:text-red-400">
-            {uploadError}
-          </div>
-        )}
-
-        {/* File Previews */}
-        {allowAttachments && files.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-2">
-            {files.map((file, index) => (
-              <FilePreview
-                key={index}
-                file={file}
-                onRemove={() => handleRemoveFile(index)}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Input Area */}
-        <div className="flex items-end gap-3">
-          {allowAttachments && mode === 'claim' && !disabled && (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*,.pdf"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
-
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="shrink-0 h-11 w-11 rounded-xl"
-              >
-                <Paperclip className="h-5 w-5" />
-              </Button>
-
-              {/* Camera button - only visible in claim mode */}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowCamera(true)}
-                disabled={isUploading}
-                className="shrink-0 h-11 w-11 rounded-xl hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <Camera className="h-5 w-5 text-black/70 dark:text-white/70" />
-              </Button>
-            </>
+          {/* Disabled Message */}
+          {disabled && disabledMessage && (
+            <div className="px-4 py-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-xl text-sm text-blue-900 dark:text-blue-100">
+              {disabledMessage}
+            </div>
           )}
 
-          <div className="flex-1 relative">
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={disabled ? 'This chat session is closed. Create a new chat to file another claim.' : `Ask about ${mode === 'policy' ? 'policies' : 'claims'}...`}
-              disabled={disabled}
-              className="w-full resize-none bg-black/5 dark:bg-white/5 border-0 rounded-2xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-black/20 dark:focus:ring-white/20 min-h-12 max-h-50 text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
-              rows={1}
-            />
-            <div className="absolute right-2 bottom-2 flex items-center gap-1">
-              <span className="text-xs text-black/40 dark:text-white/40 mr-1">
-                {message.length > 0 && `${message.length}`}
-              </span>
+          {/* Upload Loading State */}
+          {allowAttachments && isUploading && !disabled && (
+            <div className="flex items-center gap-2 px-4 text-sm text-black/60 dark:text-white/60">
+              <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />
+              <span>Uploading files...</span>
             </div>
+          )}
+
+          {/* Upload Error */}
+          {allowAttachments && uploadError && !disabled && (
+            <div className="px-4 text-sm text-red-600 dark:text-red-400">
+              {uploadError}
+            </div>
+          )}
+
+          {/* File Previews */}
+          {allowAttachments && files.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-4">
+              {files.map((file, index) => (
+                <FilePreview
+                  key={index}
+                  file={file}
+                  onRemove={() => handleRemoveFile(index)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Input Area */}
+          <div className="flex items-center gap-2 px-2">
+            {allowAttachments && mode === 'claim' && !disabled && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="shrink-0 h-10 w-10 rounded-xl hover:bg-black/5 dark:hover:bg-white/5"
+                  title="Attach file"
+                >
+                  <Paperclip className="h-5 w-5 text-black/70 dark:text-white/70" />
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowCamera(true)}
+                  disabled={isUploading}
+                  className="shrink-0 h-10 w-10 rounded-xl hover:bg-black/5 dark:hover:bg-white/5"
+                  title="Take photo"
+                >
+                  <Camera className="h-5 w-5 text-black/70 dark:text-white/70" />
+                </Button>
+              </>
+            )}
+
+            <div className="flex-1 relative flex items-center">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={disabled ? 'This chat session is closed. Create a new chat to file another claim.' : `Type your message...`}
+                disabled={disabled}
+                className="w-full resize-none bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-2xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-black/20 dark:focus:ring-white/20 focus:border-transparent min-h-[44px] max-h-[120px] text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                rows={1}
+                style={{ lineHeight: '1.5' }}
+              />
+            </div>
+
+            <Button
+              onClick={handleSend}
+              disabled={disabled || (!message.trim() && files.length === 0)}
+              size="icon"
+              className="shrink-0 h-10 w-10 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Send message"
+            >
+              <Send className="h-5 w-5" />
+            </Button>
           </div>
 
-          <Button
-            onClick={handleSend}
-            disabled={disabled || (!message.trim() && files.length === 0)}
-            size="icon"
-            className="shrink-0 h-11 w-11 rounded-xl"
-          >
-            <Send className="h-5 w-5" />
-          </Button>
-        </div>
-
           {!disabled && (
-            <p className="text-xs text-black/40 dark:text-white/40 text-center">
-              Press Enter to send, Shift + Enter for new line
+            <p className="text-xs text-black/40 dark:text-white/40 text-center px-2">
+              Press <kbd className="px-1.5 py-0.5 bg-black/5 dark:bg-white/5 rounded text-xs">Enter</kbd> to send, <kbd className="px-1.5 py-0.5 bg-black/5 dark:bg-white/5 rounded text-xs">Shift + Enter</kbd> for new line
             </p>
           )}
         </div>

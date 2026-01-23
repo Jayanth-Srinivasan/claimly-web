@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { ChatMessage } from './ChatMessage'
-import { Sparkles, FileText, ClipboardList, HelpCircle, Shield, Bot } from 'lucide-react'
+import { FileCheck, FileText, Luggage, Plane, Heart, Shield, Bot, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Message } from '@/types/chat'
 
@@ -30,16 +30,16 @@ const policySuggestions = [
 
 const claimSuggestions = [
   {
-    icon: ClipboardList,
-    text: "I need to file a new claim",
+    icon: Luggage,
+    text: "I lost my baggage",
   },
   {
-    icon: FileText,
-    text: "Check status of my existing claim",
+    icon: Plane,
+    text: "My flight was cancelled",
   },
   {
-    icon: HelpCircle,
-    text: "What documents do I need?",
+    icon: Heart,
+    text: "I need to file a medical claim",
   },
 ]
 
@@ -57,18 +57,22 @@ export function MessageList({ messages, mode, onSuggestedPrompt, isLoading = fal
         <div className="text-center max-w-2xl w-full">
           <div className="relative inline-flex mb-6">
             <div className="h-20 w-20 rounded-2xl bg-linear-to-br from-black to-black/70 dark:from-white dark:to-white/70 flex items-center justify-center">
-              <Sparkles className="h-10 w-10 text-white dark:text-black" />
+              {mode === 'policy' ? (
+                <Shield className="h-10 w-10 text-white dark:text-black" />
+              ) : (
+                <FileCheck className="h-10 w-10 text-white dark:text-black" />
+              )}
             </div>
             <div className="absolute -top-1 -right-1 h-6 w-6 bg-green-500 rounded-full border-2 border-white dark:border-black"></div>
           </div>
 
           <h2 className="text-3xl font-bold text-black dark:text-white mb-3">
-            {mode === 'policy' ? 'Policy Assistant' : 'Claim Assistant'}
+            {mode === 'policy' ? 'Policy Assistant' : 'Claims Assistant'}
           </h2>
           <p className="text-black/60 dark:text-white/60 mb-8 text-lg">
             {mode === 'policy'
               ? 'Ask me anything about your insurance policies and coverage'
-              : 'I can help you file claims and track their status'
+              : 'I\'m here to help you file your claim. Tell me what happened and I\'ll guide you through the process.'
             }
           </p>
 

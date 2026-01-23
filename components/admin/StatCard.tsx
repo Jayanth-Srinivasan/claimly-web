@@ -7,14 +7,10 @@ interface StatCardProps {
   label: string
   value: number
   icon: LucideIcon
-  trend?: {
-    value: number
-    positive: boolean
-  }
   className?: string
 }
 
-export function StatCard({ label, value, icon: Icon, trend, className }: StatCardProps) {
+export function StatCard({ label, value, icon: Icon, className }: StatCardProps) {
   return (
     <div
       className={cn(
@@ -28,18 +24,6 @@ export function StatCard({ label, value, icon: Icon, trend, className }: StatCar
         <div>
           <p className="text-sm font-medium text-black/60 dark:text-white/60 mb-1">{label}</p>
           <p className="text-3xl font-bold text-black dark:text-white">{value}</p>
-          {trend && (
-            <p
-              className={cn(
-                'text-xs font-medium mt-2',
-                trend.positive
-                  ? 'text-green-600 dark:text-green-400'
-                  : 'text-red-600 dark:text-red-400'
-              )}
-            >
-              {trend.positive ? '+' : '-'}{Math.abs(trend.value)}% from last month
-            </p>
-          )}
         </div>
         <div className="h-12 w-12 rounded-xl bg-black/5 dark:bg-white/5 flex items-center justify-center">
           <Icon className="h-6 w-6 text-black/60 dark:text-white/60" />
