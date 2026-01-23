@@ -199,6 +199,15 @@ export async function updateClaimStatus(
   status: string,
   approvedAmount?: number
 ): Promise<Claim> {
+  // Get current claim to check if it's already approved
+  const currentClaim = await getClaim(id)
+  if (!currentClaim) {
+    throw new Error('Claim not found')
+  }
+
+  const isAlreadyApproved = currentClaim.status === 'approved'
+  const isChangingToApproved = status === 'approved' && !isAlreadyApproved
+
   const updates: ClaimUpdate = {
     status,
     updated_at: new Date().toISOString(),
@@ -211,7 +220,32 @@ export async function updateClaimStatus(
     updates.reviewed_at = new Date().toISOString()
   }
 
-  return updateClaim(id, updates)
+  // Update the claim first
+  const updatedClaim = await updateClaim(id, updates)
+
+  // If status is changing TO 'approved' and we have an approved amount, deduct from coverage
+  if (isChangingToApproved && approvedAmount !== undefined && approvedAmount > 0) {
+    try {
+      const { deductClaimFromCoverage } = await import('@/lib/supabase/user-policies')
+      await deductClaimFromCoverage(
+        currentClaim.user_id,
+        currentClaim.policy_id,
+        currentClaim.coverage_type_ids || [],
+        approvedAmount
+      )
+    } catch (error) {
+      // Log error but don't fail the claim update
+      // The claim is already updated, so we just log the deduction failure
+      console.error(
+        `[updateClaimStatus] Failed to deduct claim amount from coverage for claim ${id}:`,
+        error
+      )
+      // Optionally, you could add a flag to the claim indicating deduction failed
+      // For now, we'll just log it
+    }
+  }
+
+  return updatedClaim
 }
 
 /**

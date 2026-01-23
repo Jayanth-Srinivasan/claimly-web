@@ -123,8 +123,12 @@ export type Database = {
       }
       claim_documents: {
         Row: {
+          authenticity_score: number | null
           claim_id: string | null
           claim_session_id: string | null
+          context_validation: Json | null
+          detected_document_type: string | null
+          expected_document_type: string | null
           extracted_data: Json | null
           file_name: string
           file_path: string
@@ -135,12 +139,22 @@ export type Database = {
           ocr_data: Json | null
           processed_at: string | null
           processing_status: string | null
+          profile_validation: Json | null
           uploaded_at: string | null
           user_id: string
+          validation_errors: string[] | null
+          validation_status:
+            | Database["public"]["Enums"]["document_validation_status"]
+            | null
+          validation_warnings: string[] | null
         }
         Insert: {
+          authenticity_score?: number | null
           claim_id?: string | null
           claim_session_id?: string | null
+          context_validation?: Json | null
+          detected_document_type?: string | null
+          expected_document_type?: string | null
           extracted_data?: Json | null
           file_name: string
           file_path: string
@@ -151,12 +165,22 @@ export type Database = {
           ocr_data?: Json | null
           processed_at?: string | null
           processing_status?: string | null
+          profile_validation?: Json | null
           uploaded_at?: string | null
           user_id: string
+          validation_errors?: string[] | null
+          validation_status?:
+            | Database["public"]["Enums"]["document_validation_status"]
+            | null
+          validation_warnings?: string[] | null
         }
         Update: {
+          authenticity_score?: number | null
           claim_id?: string | null
           claim_session_id?: string | null
+          context_validation?: Json | null
+          detected_document_type?: string | null
+          expected_document_type?: string | null
           extracted_data?: Json | null
           file_name?: string
           file_path?: string
@@ -167,8 +191,14 @@ export type Database = {
           ocr_data?: Json | null
           processed_at?: string | null
           processing_status?: string | null
+          profile_validation?: Json | null
           uploaded_at?: string | null
           user_id?: string
+          validation_errors?: string[] | null
+          validation_status?:
+            | Database["public"]["Enums"]["document_validation_status"]
+            | null
+          validation_warnings?: string[] | null
         }
         Relationships: [
           {
@@ -845,6 +875,12 @@ export type Database = {
     }
     Enums: {
       claim_type: "travel" | "medical" | "baggage" | "flight"
+      document_validation_status:
+        | "pending"
+        | "valid"
+        | "needs_review"
+        | "invalid"
+        | "reupload_required"
       field_type: "text" | "number" | "date" | "file" | "select"
       rule_operator:
         | "equals"
@@ -998,6 +1034,13 @@ export const Constants = {
   public: {
     Enums: {
       claim_type: ["travel", "medical", "baggage", "flight"],
+      document_validation_status: [
+        "pending",
+        "valid",
+        "needs_review",
+        "invalid",
+        "reupload_required",
+      ],
       field_type: ["text", "number", "date", "file", "select"],
       rule_operator: [
         "equals",

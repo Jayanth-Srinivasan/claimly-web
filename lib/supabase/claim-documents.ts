@@ -6,6 +6,7 @@ import type { Json } from '@/types/database'
  * Simplified schema for document handling
  */
 export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed'
+export type ValidationStatus = 'pending' | 'valid' | 'needs_review' | 'invalid' | 'reupload_required'
 
 export interface ClaimDocument {
   id: string
@@ -22,6 +23,15 @@ export interface ClaimDocument {
   extracted_data: Json | null
   uploaded_at: string | null
   processed_at: string | null
+  // Validation fields
+  validation_status: ValidationStatus | null
+  validation_errors: string[] | null
+  validation_warnings: string[] | null
+  detected_document_type: string | null
+  expected_document_type: string | null
+  profile_validation: Json | null
+  context_validation: Json | null
+  authenticity_score: number | null
 }
 
 export interface ClaimDocumentInsert {
@@ -232,5 +242,128 @@ export async function deleteDocument(id: string): Promise<void> {
 
   if (error) {
     throw new Error(`Failed to delete document: ${error.message}`)
+  }
+}
+
+/**
+ * Document validation update data
+ */
+export interface ClaimDocumentValidationUpdate {
+  validation_status?: ValidationStatus
+  validation_errors?: string[]
+  validation_warnings?: string[]
+  detected_document_type?: string
+  expected_document_type?: string
+  profile_validation?: Json
+  context_validation?: Json
+  authenticity_score?: number | null
+  ocr_data?: Json
+  extracted_data?: Json
+}
+
+/**
+ * Update document validation results
+ */
+export async function updateDocumentValidation(
+  id: string,
+  validationData: ClaimDocumentValidationUpdate
+): Promise<ClaimDocument> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('claim_documents')
+    .update({
+      ...validationData,
+      processing_status: 'completed',
+      processed_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to update document validation: ${error.message}`)
+  }
+
+  return data as ClaimDocument
+}
+
+/**
+ * Get documents by validation status
+ */
+export async function getDocumentsByValidationStatus(
+  claimSessionId: string,
+  status: ValidationStatus
+): Promise<ClaimDocument[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('claim_documents')
+    .select('*')
+    .eq('claim_session_id', claimSessionId)
+    .eq('validation_status', status)
+    .order('uploaded_at', { ascending: false })
+
+  if (error) {
+    throw new Error(`Failed to fetch documents by validation status: ${error.message}`)
+  }
+
+  return (data || []) as ClaimDocument[]
+}
+
+/**
+ * Get documents requiring re-upload
+ */
+export async function getDocumentsRequiringReupload(
+  claimSessionId: string
+): Promise<ClaimDocument[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('claim_documents')
+    .select('*')
+    .eq('claim_session_id', claimSessionId)
+    .in('validation_status', ['invalid', 'reupload_required'])
+    .order('uploaded_at', { ascending: false })
+
+  if (error) {
+    throw new Error(`Failed to fetch documents requiring re-upload: ${error.message}`)
+  }
+
+  return (data || []) as ClaimDocument[]
+}
+
+/**
+ * Get validation summary for a session
+ */
+export async function getSessionValidationSummary(
+  claimSessionId: string
+): Promise<{
+  total: number
+  valid: number
+  needsReview: number
+  invalid: number
+  reuploadRequired: number
+  pending: number
+}> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('claim_documents')
+    .select('validation_status')
+    .eq('claim_session_id', claimSessionId)
+
+  if (error) {
+    throw new Error(`Failed to fetch validation summary: ${error.message}`)
+  }
+
+  const documents = data || []
+  return {
+    total: documents.length,
+    valid: documents.filter(d => d.validation_status === 'valid').length,
+    needsReview: documents.filter(d => d.validation_status === 'needs_review').length,
+    invalid: documents.filter(d => d.validation_status === 'invalid').length,
+    reuploadRequired: documents.filter(d => d.validation_status === 'reupload_required').length,
+    pending: documents.filter(d => d.validation_status === 'pending' || !d.validation_status).length,
   }
 }

@@ -150,6 +150,144 @@ export async function updateCoverageUsage(
 }
 
 /**
+ * Deduct approved claim amount from user policy coverage limits
+ * This function is called when a claim is approved to update coverage usage
+ */
+export async function deductClaimFromCoverage(
+  userId: string,
+  policyId: string | null,
+  coverageTypeIds: string[],
+  approvedAmount: number
+): Promise<void> {
+  // Validate inputs
+  if (!policyId) {
+    console.warn('[deductClaimFromCoverage] No policy_id provided, skipping deduction')
+    return
+  }
+
+  if (!coverageTypeIds || coverageTypeIds.length === 0) {
+    console.warn('[deductClaimFromCoverage] No coverage_type_ids provided, skipping deduction')
+    return
+  }
+
+  if (!approvedAmount || approvedAmount <= 0) {
+    console.warn('[deductClaimFromCoverage] Invalid approved_amount, skipping deduction')
+    return
+  }
+
+  const supabase = await createClient()
+
+  // Get coverage type names from IDs
+  const { getCoverageTypes } = await import('@/lib/supabase/coverage-types')
+  const allCoverageTypes = await getCoverageTypes()
+  
+  const coverageTypeNames: string[] = []
+  for (const coverageTypeId of coverageTypeIds) {
+    const coverageType = allCoverageTypes.find(ct => ct.id === coverageTypeId)
+    if (coverageType) {
+      coverageTypeNames.push(coverageType.name)
+    }
+  }
+
+  if (coverageTypeNames.length === 0) {
+    console.warn('[deductClaimFromCoverage] Could not find coverage type names for provided IDs')
+    return
+  }
+
+  // Find the user's policy matching the policy_id
+  const { data: userPolicy, error: policyError } = await supabase
+    .from('user_policies')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('policy_id', policyId)
+    .eq('is_active', true)
+    .eq('status', 'active')
+    .single()
+
+  if (policyError || !userPolicy) {
+    console.warn(`[deductClaimFromCoverage] Could not find active user policy: ${policyError?.message || 'Policy not found'}`)
+    return
+  }
+
+  // Get coverage items from the policy
+  const coverageItems = (userPolicy.coverage_items as unknown as CoverageItem[]) || []
+  
+  if (coverageItems.length === 0) {
+    console.warn('[deductClaimFromCoverage] Policy has no coverage items')
+    return
+  }
+
+  // Find matching coverage item(s) by matching coverage type names
+  // Use case-insensitive, fuzzy matching
+  const normalizeName = (name: string) => name.toLowerCase().trim().replace(/\s+/g, ' ')
+  
+  let matchedItem: CoverageItem | null = null
+  let matchedCoverageTypeName: string | null = null
+
+  // Try to find exact or close match
+  for (const coverageTypeName of coverageTypeNames) {
+    const normalizedTypeName = normalizeName(coverageTypeName)
+    
+    for (const item of coverageItems) {
+      const normalizedItemName = normalizeName(item.name)
+      
+      // Exact match
+      if (normalizedItemName === normalizedTypeName) {
+        matchedItem = item
+        matchedCoverageTypeName = coverageTypeName
+        break
+      }
+      
+      // Contains match (e.g., "Baggage Loss" matches "Baggage")
+      if (normalizedItemName.includes(normalizedTypeName) || normalizedTypeName.includes(normalizedItemName)) {
+        matchedItem = item
+        matchedCoverageTypeName = coverageTypeName
+        break
+      }
+    }
+    
+    if (matchedItem) break
+  }
+
+  if (!matchedItem) {
+    console.warn(`[deductClaimFromCoverage] Could not find matching coverage item for types: ${coverageTypeNames.join(', ')}`)
+    return
+  }
+
+  // Check if deduction would exceed limit (warn but allow)
+  const newUsedLimit = matchedItem.used_limit + approvedAmount
+  if (newUsedLimit > matchedItem.total_limit) {
+    console.warn(
+      `[deductClaimFromCoverage] Warning: Deducting ${approvedAmount} would exceed coverage limit. ` +
+      `Current: ${matchedItem.used_limit}/${matchedItem.total_limit}, New: ${newUsedLimit}/${matchedItem.total_limit}`
+    )
+  }
+
+  // Update the coverage item's used_limit
+  const updatedItems = coverageItems.map((item) => {
+    if (item.name === matchedItem!.name) {
+      return {
+        ...item,
+        used_limit: item.used_limit + approvedAmount,
+      }
+    }
+    return item
+  })
+
+  // Save updated coverage items
+  try {
+    await updateUserPolicy(userPolicy.id, { coverage_items: updatedItems })
+    console.log(
+      `[deductClaimFromCoverage] Successfully deducted ${approvedAmount} from coverage item "${matchedItem.name}" ` +
+      `for user ${userId}. New used_limit: ${matchedItem.used_limit + approvedAmount}/${matchedItem.total_limit}`
+    )
+  } catch (error) {
+    console.error(`[deductClaimFromCoverage] Failed to update coverage usage:`, error)
+    throw error
+  }
+}
+
+/**
  * Cancel/deactivate a user policy
  */
 export async function cancelUserPolicy(id: string): Promise<UserPolicy> {

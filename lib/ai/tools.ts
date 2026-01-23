@@ -191,7 +191,7 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'upload_document',
-      description: 'Record an uploaded document for the claim session.',
+      description: 'Record an uploaded document for the claim session. Automatically validates the document and extracts information. Returns extracted_info field with key details that you should share with the user.',
       parameters: {
         type: 'object',
         properties: {
@@ -237,6 +237,57 @@ export const claimsTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'submit_claim',
       description: 'Finalize and submit the claim. Creates the final claim record. Only call after user confirms the summary.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  // Document validation tools (MANDATORY for strict document requirements)
+  {
+    type: 'function',
+    function: {
+      name: 'get_required_documents',
+      description: 'Get the list of required documents for a coverage type. MUST be called after categorizing incident to inform user what documents are needed. Returns required document types with descriptions and upload guidance.',
+      parameters: {
+        type: 'object',
+        properties: {
+          coverage_type_id: {
+            type: 'string',
+            description: 'The coverage type ID to get document requirements for',
+          },
+        },
+        required: ['coverage_type_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'validate_document',
+      description: 'Validate an uploaded document against claim requirements. Triggers OCR extraction and validates against user profile and claim context. Returns validation status and any issues found.',
+      parameters: {
+        type: 'object',
+        properties: {
+          document_id: {
+            type: 'string',
+            description: 'The ID of the uploaded document to validate',
+          },
+          expected_document_type: {
+            type: 'string',
+            description: 'The expected document type (e.g., "baggage_receipt", "medical_report")',
+          },
+        },
+        required: ['document_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_document_completeness',
+      description: 'Check if all required documents have been uploaded and validated. MUST be called before prepare_claim_summary to ensure all mandatory documents are present. Returns missing documents and validation status for each.',
       parameters: {
         type: 'object',
         properties: {},

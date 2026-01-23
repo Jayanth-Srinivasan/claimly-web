@@ -11,6 +11,12 @@ export interface ClaimSessionAnswer {
   value: string | number | string[]
   type: 'text' | 'date' | 'number' | 'select' | 'file'
   label: string
+  /** Source of the answer: 'user_input' (default) or 'document_extraction' */
+  source?: 'user_input' | 'document_extraction'
+  /** Document ID if source is 'document_extraction' */
+  document_id?: string
+  /** Confidence level for document extractions */
+  confidence?: 'high' | 'medium' | 'low'
 }
 
 export interface ClaimSession {
@@ -308,6 +314,185 @@ export async function submitClaim(sessionId: string): Promise<{
 }
 
 /**
+ * Format extracted document information for display
+ */
+function formatDocumentExtractedInfo(
+  extractedData: Record<string, unknown> | null,
+  documentType: string | null,
+  fileName: string
+): string[] {
+  if (!extractedData || typeof extractedData !== 'object') {
+    return []
+  }
+
+  const lines: string[] = []
+  const data = extractedData as Record<string, unknown>
+
+  // Common field mappings
+  const fieldMappings: Record<string, { label: string; formatter?: (val: unknown) => string }> = {
+    // Passenger/Person info
+    passengerName: { label: 'Passenger Name' },
+    passenger_name: { label: 'Passenger Name' },
+    patientName: { label: 'Patient Name' },
+    patient_name: { label: 'Patient Name' },
+    customerName: { label: 'Customer Name' },
+    customer_name: { label: 'Customer Name' },
+    name: { label: 'Name' },
+    
+    // Flight info
+    flightNumber: { label: 'Flight Number' },
+    flight_number: { label: 'Flight Number' },
+    airline: { label: 'Airline' },
+    route: { label: 'Route' },
+    from: { label: 'From' },
+    to: { label: 'To' },
+    departureDate: { label: 'Departure Date' },
+    departure_date: { label: 'Departure Date' },
+    arrivalDate: { label: 'Arrival Date' },
+    arrival_date: { label: 'Arrival Date' },
+    
+    // Baggage info
+    baggageTag: { label: 'Baggage Tag' },
+    baggage_tag: { label: 'Baggage Tag' },
+    baggageTagNumber: { label: 'Baggage Tag Number' },
+    baggage_tag_number: { label: 'Baggage Tag Number' },
+    bagType: { label: 'Bag Type' },
+    bag_type: { label: 'Bag Type' },
+    bagDescription: { label: 'Bag Description' },
+    bag_description: { label: 'Bag Description' },
+    bagTypeDescription: { label: 'Bag Description' },
+    bag_type_description: { label: 'Bag Description' },
+    
+    // Reference numbers
+    referenceNumber: { label: 'Reference Number' },
+    reference_number: { label: 'Reference Number' },
+    pirNumber: { label: 'PIR Number' },
+    pir_number: { label: 'PIR Number' },
+    bookingReference: { label: 'Booking Reference' },
+    booking_reference: { label: 'Booking Reference' },
+    ticketNumber: { label: 'Ticket Number' },
+    ticket_number: { label: 'Ticket Number' },
+    
+    // Dates
+    date: { label: 'Date', formatter: (val) => {
+      if (typeof val === 'string') {
+        try {
+          return new Date(val).toLocaleDateString()
+        } catch {
+          return String(val)
+        }
+      }
+      return String(val)
+    }},
+    documentDate: { label: 'Document Date', formatter: (val) => {
+      if (typeof val === 'string') {
+        try {
+          return new Date(val).toLocaleDateString()
+        } catch {
+          return String(val)
+        }
+      }
+      return String(val)
+    }},
+    issueDate: { label: 'Issue Date', formatter: (val) => {
+      if (typeof val === 'string') {
+        try {
+          return new Date(val).toLocaleDateString()
+        } catch {
+          return String(val)
+        }
+      }
+      return String(val)
+    }},
+    travelDate: { label: 'Travel Date', formatter: (val) => {
+      if (typeof val === 'string') {
+        try {
+          return new Date(val).toLocaleDateString()
+        } catch {
+          return String(val)
+        }
+      }
+      return String(val)
+    }},
+    dateOfTravel: { label: 'Date of Travel', formatter: (val) => {
+      if (typeof val === 'string') {
+        try {
+          return new Date(val).toLocaleDateString()
+        } catch {
+          return String(val)
+        }
+      }
+      return String(val)
+    }},
+    
+    // Amounts
+    amount: { label: 'Amount', formatter: (val) => {
+      if (typeof val === 'number') {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
+      }
+      return String(val)
+    }},
+    totalAmount: { label: 'Total Amount', formatter: (val) => {
+      if (typeof val === 'number') {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
+      }
+      return String(val)
+    }},
+    total: { label: 'Total', formatter: (val) => {
+      if (typeof val === 'number') {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
+      }
+      return String(val)
+    }},
+    
+    // Medical info
+    diagnosis: { label: 'Diagnosis' },
+    treatment: { label: 'Treatment' },
+    doctorName: { label: 'Doctor Name' },
+    doctor_name: { label: 'Doctor Name' },
+    hospitalName: { label: 'Hospital Name' },
+    hospital_name: { label: 'Hospital Name' },
+  }
+
+  // Extract and format fields
+  const processedKeys = new Set<string>()
+  for (const [key, mapping] of Object.entries(fieldMappings)) {
+    if (data[key] !== undefined && data[key] !== null && data[key] !== '') {
+      const value = mapping.formatter 
+        ? mapping.formatter(data[key])
+        : String(data[key])
+      lines.push(`  - ${mapping.label}: ${value}`)
+      processedKeys.add(key)
+    }
+  }
+
+  // Fallback: Show any remaining extracted fields that weren't in our mappings
+  // This helps with debugging and ensures we show all extracted information
+  for (const [key, value] of Object.entries(data)) {
+    if (!processedKeys.has(key) && value !== undefined && value !== null && value !== '') {
+      // Skip internal/technical fields
+      if (!key.startsWith('_') && key !== 'ocrData' && key !== 'autoFilledFields') {
+        const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim()
+        lines.push(`  - ${formattedKey}: ${String(value)}`)
+      }
+    }
+  }
+
+  // If we have extracted info, add document context
+  if (lines.length > 0) {
+    const docTypeLabel = documentType 
+      ? documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+      : 'Document'
+    return [
+      `**From ${docTypeLabel} (${fileName}):**`,
+      ...lines,
+    ]
+  }
+
+  return []
+}
+
+/**
  * Get claim session with summary data for review
  */
 export async function getSessionSummary(sessionId: string): Promise<{
@@ -327,6 +512,19 @@ export async function getSessionSummary(sessionId: string): Promise<{
     .from('claim_documents')
     .select('*', { count: 'exact', head: true })
     .eq('claim_session_id', sessionId)
+
+  // Fetch documents with extracted data (include all statuses that might have extracted_data)
+  const { data: documents, error: documentsError } = await supabase
+    .from('claim_documents')
+    .select('file_name, detected_document_type, extracted_data, validation_status')
+    .eq('claim_session_id', sessionId)
+    .not('extracted_data', 'is', null)
+    .order('uploaded_at', { ascending: false })
+
+  console.log(`[getSessionSummary] Fetched ${documents?.length || 0} documents for session ${sessionId}`)
+  if (documentsError) {
+    console.error(`[getSessionSummary] Error fetching documents:`, documentsError)
+  }
 
   // Format summary
   const lines: string[] = [
@@ -348,6 +546,46 @@ export async function getSessionSummary(sessionId: string): Promise<{
       ? answer.value.join(', ')
       : String(answer.value)
     lines.push(`- ${answer.label}: ${formattedValue}`)
+  }
+
+  // Add document information section
+  const documentInfoLines: string[] = []
+  if (documents && documents.length > 0) {
+    console.log(`[getSessionSummary] Processing ${documents.length} documents for extracted data`)
+    for (const doc of documents) {
+      console.log(`[getSessionSummary] Document: ${doc.file_name}, Has extracted_data: ${!!doc.extracted_data}, Type: ${doc.detected_document_type}`)
+      const extractedData = doc.extracted_data as Record<string, unknown> | null
+      if (extractedData) {
+        console.log(`[getSessionSummary] Extracted data for ${doc.file_name}:`, JSON.stringify(extractedData, null, 2))
+        const formattedInfo = formatDocumentExtractedInfo(
+          extractedData,
+          doc.detected_document_type,
+          doc.file_name
+        )
+        console.log(`[getSessionSummary] Formatted info for ${doc.file_name}:`, formattedInfo)
+        if (formattedInfo.length > 0) {
+          documentInfoLines.push(...formattedInfo)
+          documentInfoLines.push('') // Add spacing between documents
+        } else {
+          console.log(`[getSessionSummary] No formatted info generated for ${doc.file_name} - extracted data may not match expected fields`)
+        }
+      } else {
+        console.log(`[getSessionSummary] Document ${doc.file_name} has no extracted_data`)
+      }
+    }
+  } else {
+    console.log(`[getSessionSummary] No documents found or documents array is empty`)
+  }
+
+  if (documentInfoLines.length > 0) {
+    lines.push('')
+    lines.push('**Document Information:**')
+    lines.push('')
+    // Remove the last empty line
+    if (documentInfoLines[documentInfoLines.length - 1] === '') {
+      documentInfoLines.pop()
+    }
+    lines.push(...documentInfoLines)
   }
 
   lines.push('')

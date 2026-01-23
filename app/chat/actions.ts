@@ -18,6 +18,10 @@ import type { ChatSession, Message } from '@/types/chat'
 import { createOpenAIClient, getSystemPrompt, chatCompletion } from '@/lib/ai/openai-client'
 import { getToolsForMode } from '@/lib/ai/tools'
 import { handleToolCall } from '@/lib/ai/tool-handlers'
+import { processAndValidateDocument, type DocumentValidationResult } from '@/lib/ai/document-processor'
+import { getSessionByChatId } from '@/lib/supabase/claim-sessions'
+import { getDocument, updateDocumentValidation } from '@/lib/supabase/claim-documents'
+import type { DocumentRequirement, RuleAction } from '@/types/rules'
 
 /**
  * Create a new claim mode chat session
@@ -514,17 +518,201 @@ export async function processChatMessageAction(
       if (imageUrls.length > 0 && mode === 'claim') {
         console.log(`[processChatMessageAction] User uploaded ${imageUrls.length} image(s). AI should analyze visually via vision API.`)
         const imageFilePaths = fileUrls.filter(f => f.type === 'image').map(f => f.fileId)
+
+        // Try to auto-validate image documents
+        const imageValidationResults: Array<{
+          filePath: string
+          status: string
+          detectedType?: string
+          message: string
+        }> = []
+
+        for (const filePath of imageFilePaths) {
+          try {
+            const claimSession = await getSessionByChatId(sessionId)
+            if (claimSession) {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('full_name, date_of_birth, email')
+                .eq('id', user.id)
+                .single()
+
+              // Get required documents from rules
+              let requiredDocs: DocumentRequirement[] = []
+              if (claimSession.coverage_type_ids?.[0]) {
+                const { data: rules } = await supabase
+                  .from('rules')
+                  .select('*')
+                  .eq('coverage_type_id', claimSession.coverage_type_ids[0])
+                  .eq('rule_type', 'document')
+                  .eq('is_active', true)
+
+                if (rules) {
+                  for (const rule of rules) {
+                    const actions = rule.actions as unknown as RuleAction[]
+                    if (Array.isArray(actions)) {
+                      for (const action of actions) {
+                        if ((action.type === 'require_document' && action.documentTypes) || (action as any).action === 'request_documents') {
+                          requiredDocs.push({
+                            questionId: rule.id,
+                            documentTypes: action.documentTypes,
+                            minFiles: action.minFiles || 1,
+                            maxFiles: action.maxFiles || 10,
+                            allowedFormats: action.allowedFormats || ['pdf', 'jpg', 'jpeg', 'png'],
+                            message: action.errorMessage,
+                          })
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+
+              // Validate the image document
+              const validationResult = await processAndValidateDocument(
+                { path: filePath },
+                {
+                  claimContext: {
+                    coverageType: claimSession.incident_type || 'claim',
+                    coverageTypeId: claimSession.coverage_type_ids?.[0],
+                    incidentDate: claimSession.incident_date || undefined,
+                    incidentLocation: claimSession.incident_location || undefined,
+                    incidentDescription: claimSession.incident_description || undefined,
+                  },
+                  userProfile: {
+                    fullName: profile?.full_name || 'Unknown',
+                    dateOfBirth: profile?.date_of_birth || undefined,
+                    email: profile?.email || undefined,
+                  },
+                  requiredDocuments: requiredDocs,
+                }
+              )
+
+              imageValidationResults.push({
+                filePath,
+                status: validationResult.overallStatus,
+                detectedType: validationResult.documentTypeValidation.detectedType,
+                message: validationResult.userMessage,
+              })
+            }
+          } catch (err) {
+            console.error('Error validating image document:', err)
+            // Don't add to validation results - let AI handle via vision
+          }
+        }
+
+        // Build validation summary if we have results
+        let validationInfo = ''
+        if (imageValidationResults.length > 0) {
+          const validationSummary = imageValidationResults.map(r =>
+            `- ${r.filePath}: ${r.status}${r.detectedType ? ` (detected: ${r.detectedType})` : ''}`
+          ).join('\n')
+          validationInfo = `\n\nAutomatic document validation results:\n${validationSummary}`
+        }
+
         messageContent.push({
           type: 'text',
-          text: `\n\n[User has uploaded ${imageUrls.length} image(s). Images are visible to you via vision API. Please analyze them visually and extract relevant information for the claim. File paths: ${imageFilePaths.join(', ')}. Use upload_document tool to record these files.]`,
+          text: `\n\n[User has uploaded ${imageUrls.length} image(s). Images are visible to you via vision API. Please analyze them visually and extract relevant information for the claim. File paths: ${imageFilePaths.join(', ')}. Use upload_document tool to record these files.${validationInfo}]`,
         })
       }
 
-      // Add notification for documents
+      // Add notification for documents with validation info
       if (documentPaths.length > 0 && mode === 'claim') {
+        // Try to auto-validate documents
+        const validationResults: Array<{
+          filePath: string
+          status: string
+          detectedType?: string
+          message: string
+        }> = []
+
+        for (const filePath of documentPaths) {
+          try {
+            // Get claim session context for validation
+            const claimSession = await getSessionByChatId(sessionId)
+            if (claimSession) {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('full_name, date_of_birth, email')
+                .eq('id', user.id)
+                .single()
+
+              // Get required documents from rules if coverage type is set
+              let requiredDocs: DocumentRequirement[] = []
+              if (claimSession.coverage_type_ids?.[0]) {
+                const { data: rules } = await supabase
+                  .from('rules')
+                  .select('*')
+                  .eq('coverage_type_id', claimSession.coverage_type_ids[0])
+                  .eq('rule_type', 'document')
+                  .eq('is_active', true)
+
+                if (rules) {
+                  for (const rule of rules) {
+                    const actions = rule.actions as unknown as RuleAction[]
+                    if (Array.isArray(actions)) {
+                      for (const action of actions) {
+                        if ((action.type === 'require_document' && action.documentTypes) || (action as any).action === 'request_documents') {
+                          requiredDocs.push({
+                            questionId: rule.id,
+                            documentTypes: action.documentTypes,
+                            minFiles: action.minFiles || 1,
+                            maxFiles: action.maxFiles || 10,
+                            allowedFormats: action.allowedFormats || ['pdf', 'jpg', 'jpeg', 'png'],
+                            message: action.errorMessage,
+                          })
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+
+              // Validate the document
+              const validationResult = await processAndValidateDocument(
+                { path: filePath },
+                {
+                  claimContext: {
+                    coverageType: claimSession.incident_type || 'claim',
+                    coverageTypeId: claimSession.coverage_type_ids?.[0],
+                    incidentDate: claimSession.incident_date || undefined,
+                    incidentLocation: claimSession.incident_location || undefined,
+                    incidentDescription: claimSession.incident_description || undefined,
+                  },
+                  userProfile: {
+                    fullName: profile?.full_name || 'Unknown',
+                    dateOfBirth: profile?.date_of_birth || undefined,
+                    email: profile?.email || undefined,
+                  },
+                  requiredDocuments: requiredDocs,
+                }
+              )
+
+              validationResults.push({
+                filePath,
+                status: validationResult.overallStatus,
+                detectedType: validationResult.documentTypeValidation.detectedType,
+                message: validationResult.userMessage,
+              })
+            }
+          } catch (err) {
+            console.error('Error validating document:', err)
+            validationResults.push({
+              filePath,
+              status: 'pending',
+              message: 'Document saved, pending validation.',
+            })
+          }
+        }
+
+        // Build validation summary for AI
+        const validationSummary = validationResults.map(r =>
+          `- ${r.filePath}: ${r.status}${r.detectedType ? ` (detected: ${r.detectedType})` : ''} - ${r.message}`
+        ).join('\n')
+
         messageContent.push({
           type: 'text',
-          text: `\n\n[User uploaded ${documentPaths.length} document(s): ${documentPaths.join(', ')}. Use upload_document tool to record these files for the claim.]`,
+          text: `\n\n[User uploaded ${documentPaths.length} document(s). Automatic validation results:\n${validationSummary}\n\nUse upload_document tool to record these files for the claim. Based on validation status, inform user appropriately.]`,
         })
       }
       
